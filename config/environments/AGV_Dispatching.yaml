@@ -1,0 +1,26 @@
+env: AGV_Dispatching
+
+env_args:
+  continuing_episode: False
+  reward_alpha: 10
+  reward_beta: 0
+  reward_theta: 0.5
+  state_last_action: True
+  state_normalize: 8
+  seed: null
+  heuristic_ai: False
+  heuristic_rest: False
+  debug: False
+  host: '127.0.0.1'
+  user: 'root'
+  password: '151212kyhASH@'
+  port: 3306
+
+test_greedy: True
+test_nepisode: 32
+test_interval: 10000
+log_interval: 10000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+off_pg: False
