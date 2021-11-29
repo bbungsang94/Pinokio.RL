@@ -48,6 +48,6 @@ def get_config(algorithm, env_name, map_name):
     final_config_dict = recursive_dict_update(default_config, env_config)
     final_config_dict = recursive_dict_update(final_config_dict, alg_config)
 
-    final_config_dict['env_args']['map_name'] = map_name
+    final_config_dict['dbms_arg']['map_name'] = map_name
 
     return final_config_dict

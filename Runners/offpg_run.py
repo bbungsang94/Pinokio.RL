@@ -2,7 +2,6 @@ import datetime
 import os
 import pprint
 import time
-import math as mth
 import threading
 import torch as th
 from types import SimpleNamespace as SN
@@ -13,8 +12,8 @@ from os.path import dirname, abspath
 from Learners import REGISTRY as le_REGISTRY
 from Runners import REGISTRY as r_REGISTRY
 from Controllers import REGISTRY as mac_REGISTRY
-from components.episode_buffer import ReplayBuffer, Best_experience_Buffer
-from components.transforms import OneHot
+from Components.episode_buffer import ReplayBuffer, Best_experience_Buffer
+from Components.transforms import OneHot
 
 
 def offpg_run(_config, _log, game_name):
@@ -59,7 +58,7 @@ def offpg_run(_config, _log, game_name):
     print("Exiting script")
 
     # Making sure framework really exits
-    os._exit(os.EX_OK)
+    quit()
 
 
 def evaluate_sequential(args, runner):
