@@ -7,6 +7,10 @@ import numpy as np
 class EpisodeRunner:
 
     def __init__(self, args, logger):
+        self.new_batch = None
+        self.batch = None
+        self.mac = None
+
         self.args = args
         self.logger = logger
         self.batch_size = self.args.batch_size_run

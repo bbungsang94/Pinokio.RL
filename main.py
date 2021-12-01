@@ -9,15 +9,12 @@ from Runners.run import standard_run
 
 '''
 algorithm 설정 가이드(config/algs 경로의 파일이름 그대로)
-만일 rnn agent의 QMIX 를 실행하고 싶다면 -> 'RNN_AGENT/qmix_beta'
-만일 G2ANet agent COMA 를 실행하고 싶다면 -> 'G2ANet_Agent/coma'
-만일 ROMA 를 실행하고 싶다면 -> 'Role_Learning_Agent/qmix_smac_latent'
 '''
 
 
 if __name__ == '__main__':
     if platform.system() != 'Windows':
-        print('This system is optimized on Winodws. Check your operating system(OS).')
+        print('This system is optimized on Windows. Check your operating system(OS).')
 
     logger = get_logger()
 

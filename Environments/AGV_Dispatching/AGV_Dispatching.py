@@ -1,15 +1,153 @@
-import pandas as pd
-import numpy as np
-import math
-import time
-import gym
-import copy
-from collections import OrderedDict
-from ray.rllib.env import EnvContext
-from gym.spaces import Discrete, Box, Dict
-from Util.DBManager import MariaManager
+from Environments.multiagentenv import MultiAgentEnv
+from Environments.AGV_Dispatching.Maps import get_map_params
 
-INF = np.finfo(np.float64).max
+
+def kill_process():
+    import psutil
+
+    for proc in psutil.process_iter():
+        try:
+            # 프로세스 이름, PID값 가져오기
+            proc_name = proc.name()
+            proc_id = proc.pid
+
+            if proc_name == "Pinokio.exe":
+                parent_pid = proc_id  # PID
+                parent = psutil.Process(parent_pid)  # PID 찾기
+                for child in parent.children(recursive=True):  # 자식-부모 종료
+                    child.kill()
+                parent.kill()
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):  # 예외처리
+            pass
+
+
+
+class AGVBased(MultiAgentEnv):
+    def __init__(self,
+                 map_name="acs_dda_simulator_210324",
+                 continuing_episode=False,
+                 reward_alpha=10,
+                 reward_beta=0,
+                 reward_theta=0.5,
+                 state_last_action=True,
+                 state_timestep_number=False,
+                 state_normalize=8,
+                 seed=None,
+                 heuristic_ai=False,
+                 heuristic_rest=False,
+                 debug=False,
+
+                 ):
+        # Map arguments
+        self.map_name = map_name
+        map_params = get_map_params(self.map_name)
+        self.n_agents = map_params["n_agents"]
+        self.n_volumes = map_params["n_volumes"]
+        self.episode_limit = map_params["limit"]
+
+        # Observations and state
+        self.state_last_action = state_last_action
+        self.state_timestep_number = state_timestep_number
+
+        # n actions
+        self.n_actions = 3
+
+        # multi agent setting
+        self.agents = {}
+        self._episode_count = 0
+        self._episode_steps = 0
+        self._total_steps = 0
+        self._obs = None
+        self.timeouts = 0
+
+    def launch(self):
+        import os
+        import subprocess
+        import pyautogui
+        import time
+        from PIL import Image
+
+        kill_process()
+
+        od = os.curdir
+        os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.VTE\Pinokio.VTE\bin\Debug')
+        p1 = subprocess.Popen('Pinokio.exe',
+                              shell=True, stdin=None, stdout=None, stderr=None,
+                              close_fds=True)
+        time.sleep(3)
+        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
+        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(rtn)
+        pyautogui.click()
+        pyautogui.click()
+
+        time.sleep(3)
+        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
+        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(rtn)
+        pyautogui.click()
+
+        return None
+
+    def step(self, actions):
+        """ Returns reward, terminated, info """
+        return None
+
+    def get_obs(self):
+        """ Returns all agent observations in a list """
+        return None
+
+    def get_obs_agent(self, agent_id):
+        """ Returns observation for agent_id """
+        return None
+
+    def get_obs_size(self):
+        """ Returns the shape of the observation """
+        return None
+
+    def get_state(self):
+        return None
+
+    def get_state_size(self):
+        """ Returns the shape of the state"""
+        return None
+
+    def get_avail_actions(self):
+        return None
+
+    def get_avail_agent_actions(self, agent_id):
+        """ Returns the available actions for agent_id """
+        return None
+
+    def get_total_actions(self):
+        """ Returns the total number of actions an agent could ever take """
+        # TODO: This is only suitable for a discrete 1 dimensional action space for each agent
+        return None
+
+    def reset(self):
+        """ Returns initial observations and states"""
+        return None
+
+    def render(self):
+        return None
+
+    def close(self):
+        return None
+
+    def seed(self):
+        return None
+
+    def save_replay(self):
+        return None
+
+    def get_env_info(self):
+        env_info = {"state_shape": self.get_state_size(),
+                    "obs_shape": self.get_obs_size(),
+                    "n_actions": self.get_total_actions(),
+                    "n_agents": self.n_agents,
+                    "episode_limit": self.episode_limit}
+        return env_info
 
 
 class VTE(gym.Env):
@@ -26,7 +164,7 @@ class VTE(gym.Env):
 
         # self.action_space = Discrete(len(self.machines))
         self.action_space = Dict({'Machine': Discrete(len(self.machines)), 'Order': Discrete(5)})
-        #self.action_space = Box(low=[0, 0], high=[len(self.machines), 5], shape=(2,), dtype=np.int32)
+        # self.action_space = Box(low=[0, 0], high=[len(self.machines), 5], shape=(2,), dtype=np.int32)
 
         self.observation_space = self.__GetObservationSpaces__()
         self.obs = self.__GetInitObservation__()
@@ -178,7 +316,7 @@ class VTE(gym.Env):
 
         for index in range(self.__MaxCandidate):
             key = 'Order-' + str(index)
-            value = {'Id': 0, 'fromX': 0.00, 'fromY': 0.00, 'toX': 0.00, 'toY': 0.00 }#, 'Priority': 0}
+            value = {'Id': 0, 'fromX': 0.00, 'fromY': 0.00, 'toX': 0.00, 'toY': 0.00}  # , 'Priority': 0}
             observation[key] = OrderedDict(value)
         return OrderedDict(observation)
 
@@ -191,7 +329,7 @@ class VTE(gym.Env):
                      'fromY': Box(low=0.0, high=INF, shape=(1,), dtype=np.float64),
                      'toX': Box(low=0.0, high=INF, shape=(1,), dtype=np.float64),
                      'toY': Box(low=0.0, high=INF, shape=(1,), dtype=np.float64)}
-                     #'Priority': Discrete(self.__MaxCandidate + 1)}
+            # 'Priority': Discrete(self.__MaxCandidate + 1)}
             observation[key] = Dict(value)
 
         machine_id = self.machines.agv_id.tolist()
