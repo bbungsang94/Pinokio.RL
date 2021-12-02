@@ -2,7 +2,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from modules.GAT.models import GAT
+from Modules.GAT.models import GAT
 
 
 class QMixer_gat(nn.Module):

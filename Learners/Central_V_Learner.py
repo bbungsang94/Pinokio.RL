@@ -1,7 +1,7 @@
-from modules.critics.CentralV import CentralV_Critic
+from Modules.critics.CentralV import CentralV_Critic
 import torch
 from torch.optim import RMSprop
-from components.episode_buffer import EpisodeBatch
+from Components.episode_buffer import EpisodeBatch
 
 
 class CentralV_Learner:

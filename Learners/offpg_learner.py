@@ -1,12 +1,12 @@
 import copy
 from torch.distributions import Categorical
-from components.episode_buffer import EpisodeBatch
-from modules.critics.offpg import OffPGCritic
+from Components.episode_buffer import EpisodeBatch
+from Modules.critics.offpg import OffPGCritic
 import torch as th
 from utils.offpg_utils import build_target_q
 from utils.rl_utils import build_td_lambda_targets
 from torch.optim import RMSprop
-from modules.mixers.qmix import QMixer
+from Modules.mixers.qmix import QMixer
 
 
 class OffPGLearner:

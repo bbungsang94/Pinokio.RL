@@ -8,8 +8,8 @@ def env_fn(env, **kwargs) -> MultiAgentEnv:
     return env(**kwargs)
 
 
-REGISTRY = {"sc2": partial(env_fn, env=AGVBased)}
+REGISTRY = {'AGV_Dispatching': partial(env_fn, env=AGVBased)}
 
 if sys.platform == "linux":
-    os.environ.setdefault("SC2PATH",
-                          os.path.join(os.getcwd(), "3rdparty", "StarCraftII"))
+    os.environ.setdefault("AGV_Path",
+                          os.path.join(os.getcwd(), "3rdparty", "./"))

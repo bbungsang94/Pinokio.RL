@@ -1,10 +1,12 @@
 import enum
 import math
-
+import time
 import numpy as np
+import pandas as pd
 from absl import logging
 from Environments.multiagentenv import MultiAgentEnv
 from Environments.AGV_Dispatching.Maps import get_map_params
+from utils.DBManager import MariaManager
 
 
 class DispatchingAttributes(enum.IntEnum):
@@ -67,7 +69,8 @@ def VTE_launch():
 
 class AGVBased(MultiAgentEnv):
     def __init__(self,
-                 map_name="acs_dda_simulator_210324",
+                 map_name="",
+                 end_time=8640,
                  continuing_episode=False,
                  reward_alpha=10,
                  reward_beta=0,
@@ -76,6 +79,7 @@ class AGVBased(MultiAgentEnv):
                  state_last_action=True,
                  state_timestep_number=False,
                  state_normalize=8,
+                 obs_instead_of_state=False,
                  seed=None,
                  heuristic_ai=False,
                  heuristic_rest=False,
@@ -87,19 +91,28 @@ class AGVBased(MultiAgentEnv):
         # Map arguments
         self.map_name = map_name
         map_params = get_map_params(self.map_name)
-        self.n_agents = map_params["n_agents"]
-        self.n_volumes = map_params["n_volumes"]
+        map_params['database'] = self.map_name
+        self.DBMS = MariaManager(config=map_params)
+        self.MapCoordinate = self.__getDataFrame(tb='map_node')
+        self.LinkInfo = self.__getDataFrame(tb='map_node_link')
+        self.Machines = self.__getDataFrame(tb='simulation_agv_info')
+
+        self.n_agents = len(self.Machines)
+        self.n_orders = 20
+        self.n_volumes = end_time
         self.episode_limit = map_params["limit"]
         self.score = 0
+        self.start_time = time.time()
 
         # Observations and state
         self.state_last_action = state_last_action
         self.state_timestep_number = state_timestep_number
+        self.obs_instead_of_state = obs_instead_of_state
 
         # reward
         self.reward_scale = reward_scale
         # n actions
-        self.n_actions = 3
+        self.n_actions = len(DispatchingAttributes)
 
         # multi agent setting
         self.agents = {}
@@ -147,6 +160,9 @@ class AGVBased(MultiAgentEnv):
         # Update units
         # terminated check
         terminated = False
+        if self.start_time - time.time() > self.n_volumes:
+            terminated = True
+
         if terminated:
             self._episode_count += 1
         # reward
@@ -166,13 +182,15 @@ class AGVBased(MultiAgentEnv):
 
     def get_obs_size(self):
         """ Returns the shape of the observation """
-        return None
+        return (self.n_agents * (self.n_actions + 1)) + (self.self.n_orders * 5)
 
     def get_state(self):
         return None
 
     def get_state_size(self):
         """ Returns the shape of the state"""
+        if self.obs_instead_of_state:
+            return self.get_obs_size() * self.n_agents
         return None
 
     def get_avail_actions(self):
@@ -212,6 +230,7 @@ class AGVBased(MultiAgentEnv):
         # observation, state 초기화
 
         VTE_launch()
+        self.start_time = time.time()
         return None
 
     def render(self):
@@ -310,6 +329,35 @@ class AGVBased(MultiAgentEnv):
         # 안쓸래
         return None, None
 
+    def __getDataFrame(self, tb):
+        view = self.DBMS.DML.select_all(tb=tb)
+        columns = self.DBMS.DML.get_columns(tb=tb, on_tuple=False)
+        return pd.DataFrame(view, columns=columns)
+
+    def __getSPFARouting__(self, begin, terminal):
+        visit = {begin: 0}
+        route = {begin: [begin]}
+        q = [begin]
+        node = begin
+        while len(q) != 0:
+            candidates = self.LinkInfo.loc[self.LinkInfo.fromNode == node,
+                                           ['link_id', 'link_node', 'weight']]
+
+            for idx in candidates.index:
+                temp_node = candidates.loc[idx, 'link_node']
+                distance = candidates.loc[idx, 'weight']
+
+                if temp_node in visit:
+                    if distance + visit[node] > visit[temp_node]:
+                        continue
+
+                q.append(temp_node)
+                visit[temp_node] = distance + visit[node]
+                route[temp_node] = route[node] + [temp_node]
+
+            node = q.pop()
+
+        return route[terminal], visit[terminal]
 # class JobBased(gym.Env):
 #     def __init__(self, config: EnvContext):
 #

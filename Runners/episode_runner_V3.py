@@ -167,7 +167,7 @@ class EpisodeRunnerV3:
             self.t += 1
             time_step += 1
 
-            if time_step % 5 == 0 and time_step is not 0:
+            if time_step % 5 == 0 and time_step != 0:
                 if self.learner is not None:
                     self.learner.train_role_selector(self.batch_role, self.batch_size, 5)
                     self.batch_role = self.new_batch_role()

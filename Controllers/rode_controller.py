@@ -1,8 +1,8 @@
-from modules.agents import REGISTRY as agent_REGISTRY
-from components.action_selectors import REGISTRY as action_REGISTRY
-from modules.action_encoders import REGISTRY as action_encoder_REGISTRY
-from modules.roles import REGISTRY as role_REGISTRY
-from modules.role_selectors import REGISTRY as role_selector_REGISTRY
+from Modules.agents import REGISTRY as agent_REGISTRY
+from Components.action_selectors import REGISTRY as action_REGISTRY
+from Modules.action_encoders import REGISTRY as action_encoder_REGISTRY
+from Modules.roles import REGISTRY as role_REGISTRY
+from Modules.role_selectors import REGISTRY as role_selector_REGISTRY
 import torch as th
 
 from sklearn.cluster import KMeans

@@ -29,6 +29,7 @@ if __name__ == '__main__':
     np.random.seed(random_Seed)
     th.manual_seed(random_Seed)
     config['env_args']['seed'] = random_Seed
+    config['env_args']['map_name'] = map_name
 
     is_offline_run = config['off_pg']
 

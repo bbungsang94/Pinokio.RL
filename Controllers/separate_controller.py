@@ -1,5 +1,5 @@
-from modules.agents import REGISTRY as agent_REGISTRY
-from components.action_selectors import REGISTRY as action_REGISTRY
+from Modules.agents import REGISTRY as agent_REGISTRY
+from Components.action_selectors import REGISTRY as action_REGISTRY
 from .basic_controller import BasicMAC
 import torch as th
 

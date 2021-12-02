@@ -1,7 +1,7 @@
 import copy
-from components.episode_buffer import EpisodeBatch
-from modules.mixers.vdn import VDNMixer
-from modules.mixers.qmix import QMixer
+from Components.episode_buffer import EpisodeBatch
+from Modules.mixers.vdn import VDNMixer
+from Modules.mixers.qmix import QMixer
 from .q_learner import QLearner
 import torch as th
 from torch.optim import RMSprop

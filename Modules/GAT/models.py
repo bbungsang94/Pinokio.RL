@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modules.GAT.layers import GraphAttentionLayer
+from Modules.GAT.layers import GraphAttentionLayer
 
 
 class GAT(nn.Module):

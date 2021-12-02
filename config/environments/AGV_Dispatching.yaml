@@ -1,21 +1,23 @@
 env: AGV_Dispatching
 
 env_args:
+  map_name: ''
+  end_time: 8640
   continuing_episode: False
   reward_alpha: 10
   reward_beta: 0
   reward_theta: 0.5
+  reward_scale: True
   state_last_action: True
+  state_timestep_number: False
   state_normalize: 8
-  seed: null
+  obs_instead_of_state: True
+  seed: None
   heuristic_ai: False
   heuristic_rest: False
+  replay_dir: ''
+  replay_prefix: ''
   debug: False
-dbms_arg:
-  host: '127.0.0.1'
-  user: 'root'
-  password: '151212kyhASH@'
-  port: 3306
 test_greedy: True
 test_nepisode: 32
 test_interval: 10000

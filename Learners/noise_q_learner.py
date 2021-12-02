@@ -1,8 +1,8 @@
 import copy
-from components.episode_buffer import EpisodeBatch
-from modules.mixers.vdn import VDNMixer
-from modules.mixers.qmix import QMixer
-from modules.mixers.noise_mix import QMixer as NoiseQMixer
+from Components.episode_buffer import EpisodeBatch
+from Modules.mixers.vdn import VDNMixer
+from Modules.mixers.qmix import QMixer
+from Modules.mixers.noise_mix import QMixer as NoiseQMixer
 import torch as th
 from torch.optim import RMSprop
 import numpy as np
