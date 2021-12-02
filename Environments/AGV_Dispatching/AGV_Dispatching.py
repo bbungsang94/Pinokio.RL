@@ -1,8 +1,20 @@
+import enum
+import math
+
+import numpy as np
+from absl import logging
 from Environments.multiagentenv import MultiAgentEnv
 from Environments.AGV_Dispatching.Maps import get_map_params
 
 
-def kill_process():
+class DispatchingAttributes(enum.IntEnum):
+    DISTANCE = 0
+    WAITINGTIME = 1
+    TRAVELINGTIME = 2
+    LINEBALANCING = 3
+
+
+def VTE_kill_process():
     import psutil
 
     for proc in psutil.process_iter():
@@ -22,6 +34,36 @@ def kill_process():
             pass
 
 
+def VTE_launch():
+    import os
+    import subprocess
+    import pyautogui
+    import time
+    from PIL import Image
+
+    VTE_kill_process()
+
+    od = os.curdir
+    os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.VTE\Pinokio.VTE\bin\Debug')
+    subprocess.Popen('Pinokio.exe',
+                     shell=True, stdin=None, stdout=None, stderr=None,
+                     close_fds=True)
+    time.sleep(3)
+    png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
+    rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+    pyautogui.moveTo(rtn)
+    pyautogui.click()
+    pyautogui.click()
+
+    time.sleep(3)
+    png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
+    rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+    pyautogui.moveTo(rtn)
+    pyautogui.click()
+    os.chdir(od)
+
+    return None
+
 
 class AGVBased(MultiAgentEnv):
     def __init__(self,
@@ -30,12 +72,15 @@ class AGVBased(MultiAgentEnv):
                  reward_alpha=10,
                  reward_beta=0,
                  reward_theta=0.5,
+                 reward_scale=True,
                  state_last_action=True,
                  state_timestep_number=False,
                  state_normalize=8,
                  seed=None,
                  heuristic_ai=False,
                  heuristic_rest=False,
+                 replay_dir="",
+                 replay_prefix="",
                  debug=False,
 
                  ):
@@ -45,58 +90,75 @@ class AGVBased(MultiAgentEnv):
         self.n_agents = map_params["n_agents"]
         self.n_volumes = map_params["n_volumes"]
         self.episode_limit = map_params["limit"]
+        self.score = 0
 
         # Observations and state
         self.state_last_action = state_last_action
         self.state_timestep_number = state_timestep_number
 
+        # reward
+        self.reward_scale = reward_scale
         # n actions
         self.n_actions = 3
 
         # multi agent setting
         self.agents = {}
+        self.last_action = np.zeros((self.n_agents, self.n_actions))
         self._episode_count = 0
         self._episode_steps = 0
         self._total_steps = 0
         self._obs = None
         self.timeouts = 0
+        self._run_config = None
+        self._controller = None
 
-    def launch(self):
-        import os
-        import subprocess
-        import pyautogui
-        import time
-        from PIL import Image
+        # Replay setting
+        self.replay_dir = replay_dir
+        self.replay_prefix = replay_prefix
+        self.debug = debug
 
-        kill_process()
-
-        od = os.curdir
-        os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.VTE\Pinokio.VTE\bin\Debug')
-        p1 = subprocess.Popen('Pinokio.exe',
-                              shell=True, stdin=None, stdout=None, stderr=None,
-                              close_fds=True)
-        time.sleep(3)
-        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
-        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-        pyautogui.moveTo(rtn)
-        pyautogui.click()
-        pyautogui.click()
-
-        time.sleep(3)
-        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
-        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-        pyautogui.moveTo(rtn)
-        pyautogui.click()
-
-        return None
+        # heuristics
+        self._seed = seed
+        self.heuristic_ai = heuristic_ai
+        self.heuristic_ai = False  # 일단 기능 꺼놓는다.
+        if self.heuristic_ai:
+            self.heuristic_targets = [None] * self.n_agents
 
     def step(self, actions):
         """ Returns reward, terminated, info """
+        actions_int = [int(a) for a in actions]
+        self.last_action = np.eye(self.n_actions)[np.array(actions_int)]
+
+        # Collect individual actions
+        apply_action = []
+        if self.debug:
+            logging.debug("Actions".center(60, "-"))
+
+        for index, action in enumerate(actions_int):
+            if not self.heuristic_ai:
+                job_id = self.get_agent_action(index, action)
+            else:
+                job_id, action_num = self.get_agent_action_heuristic(index, action)
+                actions[index] = action_num
+            if job_id:
+                apply_action.append(job_id)
+
+        # Send action request
+        # Update units
+        # terminated check
+        terminated = False
+        if terminated:
+            self._episode_count += 1
+        # reward
+        reward = 0
+        if self.reward_scale:
+            reward /= self.max_reward / self.reward_scale_rate
         return None
 
     def get_obs(self):
         """ Returns all agent observations in a list """
-        return None
+        agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
+        return agents_obs
 
     def get_obs_agent(self, agent_id):
         """ Returns observation for agent_id """
@@ -114,31 +176,61 @@ class AGVBased(MultiAgentEnv):
         return None
 
     def get_avail_actions(self):
-        return None
+        # cannot choose no-op when alive
+        avail_actions = []
+        for agent_id in range(self.n_agents):
+            avail_agent = self.get_avail_agent_actions(agent_id)
+            avail_actions.append(avail_agent)
+        return avail_actions
 
     def get_avail_agent_actions(self, agent_id):
         """ Returns the available actions for agent_id """
-        return None
+        agent = self.get_agent_by_id(agent_id)
+        avail_actions = [0] * self.n_actions
+        if not agent.busy:
+            for attribute in DispatchingAttributes:
+                # 어떤 제약조건을 걸어서 0, 1로 진행가능
+                avail_actions[attribute] = 1
+
+        return avail_actions
 
     def get_total_actions(self):
         """ Returns the total number of actions an agent could ever take """
         # TODO: This is only suitable for a discrete 1 dimensional action space for each agent
-        return None
+        return self.n_actions
 
     def reset(self):
         """ Returns initial observations and states"""
+        self._episode_steps = 0
+        self.last_action = np.zeros((self.n_agents, self.n_actions))
+        self.score = 0
+        self._obs = self._controller.observe()
+
+        if self.heuristic_ai:
+            self.heuristic_targets = [None] * self.n_agents
+
+        # observation, state 초기화
+
+        VTE_launch()
         return None
 
     def render(self):
+        # Auto render
         return None
 
     def close(self):
-        return None
+        VTE_kill_process()
 
     def seed(self):
-        return None
+        return self._seed
 
     def save_replay(self):
+        """Save a replay."""
+        prefix = self.replay_prefix or self.map_name
+        replay_dir = self.replay_dir or ""
+        replay_path = self._run_config.save_replay(
+            self._controller.save_replay(), replay_dir=replay_dir, prefix=prefix)
+        logging.info("Replay saved at: %s" % replay_path)
         return None
 
     def get_env_info(self):
@@ -149,8 +241,77 @@ class AGVBased(MultiAgentEnv):
                     "episode_limit": self.episode_limit}
         return env_info
 
+    def init_agents(self):
+        """Initialise the units."""
+        while True:
+            self.agents = {}
 
-class VTE(gym.Env):
+            # region AGV groups
+            # ally_units = [
+            #     unit
+            #     for unit in self._obs.observation.raw_data.units
+            #     if unit.owner == 1
+            # ]
+            # ally_units_sorted = sorted(
+            #     ally_units,
+            #     key=attrgetter("unit_type", "pos.x", "pos.y"),
+            #     reverse=False,
+            # )
+            # for i in range(len(ally_units_sorted)):
+            #     self.agents[i] = ally_units_sorted[i]
+            #     if self.debug:
+            #         logging.debug(
+            #             "Unit {} is {}, x = {}, y = {}".format(
+            #                 len(self.agents),
+            #                 self.agents[i].unit_type,
+            #                 self.agents[i].pos.x,
+            #                 self.agents[i].pos.y,
+            #             )
+            #         )
+            # endregion
+
+            all_agents_created = (len(self.agents) == self.n_agents)
+
+    def get_agent_by_id(self, index):
+        """Get agent by ID."""
+        return self.agents[index]
+
+    def get_agent_action(self, index, action):
+        """Construct the action for agent a_id."""
+        avail_actions = self.get_avail_agent_actions(index)
+        assert avail_actions[action] == 1, \
+            "Agent {} cannot perform action {}".format(index, action)
+
+        agent = self.get_agent_by_id(index)
+        tag = agent.tag
+        x = agent.pos.x
+        y = agent.pos.y
+
+        if action == DispatchingAttributes.DISTANCE:
+            # no-op (valid only when dead)
+            assert agent.health == 0, "No-op only available for dead agents."
+            if self.debug:
+                logging.debug("Agent {} strategy: Minimum distance".format(index))
+            return None
+        elif action == DispatchingAttributes.WAITINGTIME:
+            if self.debug:
+                logging.debug("Agent {} strategy: Minimum waiting time".format(index))
+        elif action == DispatchingAttributes.TRAVELINGTIME:
+            if self.debug:
+                logging.debug("Agent {} strategy: Minimum traveling time".format(index))
+        elif action == DispatchingAttributes.LINEBALANCING:
+            if self.debug:
+                logging.debug("Agent {} strategy: line balancing".format(index))
+
+        job_id = 1
+        return job_id
+
+    def get_agent_action_heuristic(self, index, action):
+        # 안쓸래
+        return None, None
+
+
+class JobBased(gym.Env):
     def __init__(self, config: EnvContext):
 
         self.score = 0
