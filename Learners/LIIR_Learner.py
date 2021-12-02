@@ -1,6 +1,6 @@
 import copy
-from components.episode_buffer import EpisodeBatch
-from modules.critics.illr import LIIRCritic
+from Components.episode_buffer import EpisodeBatch
+from Modules.critics.illr import LIIRCritic
 from utils.rl_utils import build_td_lambda_targets_v2
 import torch as th
 from torch.optim import RMSprop

@@ -1,4 +1,4 @@
-from envs import REGISTRY as env_REGISTRY
+from Environments import REGISTRY as env_REGISTRY
 from functools import partial
 from Components.episode_buffer import EpisodeBatch
 from multiprocessing import Pipe, Process
