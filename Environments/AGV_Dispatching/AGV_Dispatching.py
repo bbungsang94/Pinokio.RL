@@ -57,11 +57,29 @@ def VTE_launch():
     pyautogui.click()
     pyautogui.click()
 
-    time.sleep(3)
+    SW_HIDE = 0
+    info = subprocess.STARTUPINFO()
+    info.dwFlags = subprocess.STARTF_USESHOWWINDOW
+    info.wShowWindow = SW_HIDE
+
+    os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.ACS\Pinokio.ACS\bin\Debug')
+    p2 = subprocess.Popen('Pinokio.ACS.exe',
+                          stdin=None, stdout=None, stderr=None,
+                          close_fds=True, startupinfo=info)
+    time.sleep(5)
+
     png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
     rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
     pyautogui.moveTo(rtn)
     pyautogui.click()
+
+    time.sleep(1)
+
+    png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
+    rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+    pyautogui.moveTo(rtn)
+    pyautogui.click()
+
     os.chdir(od)
 
     return None
@@ -96,6 +114,7 @@ class AGVBased(MultiAgentEnv):
         self.MapCoordinate = self.__getDataFrame(tb='map_node')
         self.LinkInfo = self.__getDataFrame(tb='map_node_link')
         self.Machines = self.__getDataFrame(tb='simulation_agv_info')
+        self.MachineInfo = dict()
 
         self.n_agents = len(self.Machines)
         self.n_orders = 20
@@ -143,7 +162,6 @@ class AGVBased(MultiAgentEnv):
         self.last_action = np.eye(self.n_actions)[np.array(actions_int)]
 
         # Collect individual actions
-        apply_action = []
         if self.debug:
             logging.debug("Actions".center(60, "-"))
 
@@ -153,11 +171,17 @@ class AGVBased(MultiAgentEnv):
             else:
                 job_id, action_num = self.get_agent_action_heuristic(index, action)
                 actions[index] = action_num
-            if job_id:
-                apply_action.append(job_id)
 
-        # Send action request
-        # Update units
+            if job_id is not None:
+                # Send action request
+                agent = self.get_agent_by_id(index)
+                assign = ["selected_agv_id", "status", "assigned_date"]
+                assign_time = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(time.time()))
+                self.DBMS.DML.update(tb='mcs_order', columns=assign,
+                                     values=[str(agent['AGV_ID']), str(1), '"' + str(assign_time) + '"'],
+                                     cond='uid = ' + str(job_id))
+                agent["Busy"] = 1
+
         # terminated check
         terminated = False
         if self.start_time - time.time() > self.n_volumes:
@@ -166,9 +190,25 @@ class AGVBased(MultiAgentEnv):
         if terminated:
             self._episode_count += 1
         # reward
-        reward = 0
-        if self.reward_scale:
-            reward /= self.max_reward / self.reward_scale_rate
+        view = self.DBMS.DML.select_all(tb='mcs_order', cond="completed_date != 'None'")
+        columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+        production = pd.DataFrame(view, columns=columns)
+        reward = 1.0 - math.exp(-10.0 * float(production.shape[0]))
+
+        while True:
+            view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
+            columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+            idle_order_set = pd.DataFrame(view, columns=columns)
+            orders = idle_order_set.head(3)
+
+            if orders.shape[0] == 0:
+                time.sleep(1)
+            else:
+                break
+
+        # Update units
+        self.__AGV_update()
+
         return None
 
     def get_obs(self):
@@ -178,13 +218,75 @@ class AGVBased(MultiAgentEnv):
 
     def get_obs_agent(self, agent_id):
         """ Returns observation for agent_id """
-        return None
+        self.__AGV_update()
+
+        # load 50-order info
+        view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
+        columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+        idle_order_set = pd.DataFrame(view, columns=columns)
+        top50_order = idle_order_set.head(self.n_orders)
+
+        # agent attributes - Id, Minimum dist among orders, Maximum dist among orders, Mileage
+        agent = self.get_agent_by_id(agent_id)
+        agent_feats = np.zeros(4, dtype=np.float32)
+        agent_feats[0] = agent['AGV_ID']
+        agent_feats[1] = math.inf
+        agent_feats[2] = 0
+        agent_feats[3] = agent['Mileage']
+        agent_feats[4] = agent['Busy']
+
+        # extract 5 attributes Id, fromX, fromY, toX, toY
+        order_feats = np.zeros((self.n_orders, 5), dtype=np.float32)
+        dummy_count = 0
+        for i in top50_order.index:
+            from_node = top50_order.loc[i, 'from_node']
+            to_node = top50_order.loc[i, 'to_node']
+            from_cdi = self.MapCoordinate.loc[self.MapCoordinate.node_id == from_node,
+                                              ['x_coordinate', 'y_coordinate']]
+            to_cdi = self.MapCoordinate.loc[self.MapCoordinate.node_id == to_node,
+                                            ['x_coordinate', 'y_coordinate']]
+
+            order_feats[dummy_count, 0] = top50_order.loc[i, 'uid']
+            order_feats[dummy_count, 1] = from_cdi.iat[0, 0]
+            order_feats[dummy_count, 2] = from_cdi.iat[0, 1]
+            order_feats[dummy_count, 3] = to_cdi.iat[0, 0]
+            order_feats[dummy_count, 4] = to_cdi.iat[0, 1]
+
+            for identify, machine in self.MachineInfo.items():
+                cur_node = machine.loc[machine.addressName == 'CUR_NODE', 'addressValue']
+                _, distance = self.__getSPFARouting(cur_node.item(), from_node)
+                if agent_feats[1] >= distance:
+                    agent_feats[1] = distance
+                if agent_feats[2] <= distance:
+                    agent_feats[2] = distance
+
+            dummy_count += 1
+        for i in range(50 - dummy_count):
+            order_feats[dummy_count, 0] = 0
+            order_feats[dummy_count, 1] = math.inf
+            order_feats[dummy_count, 2] = math.inf
+            order_feats[dummy_count, 3] = math.inf
+            order_feats[dummy_count, 4] = math.inf
+
+        agent_obs = np.concatenate(
+            (
+                agent_feats.flatten(),
+                order_feats.flatten(),
+            )
+        )
+
+        return agent_obs
 
     def get_obs_size(self):
         """ Returns the shape of the observation """
-        return (self.n_agents * (self.n_actions + 1)) + (self.self.n_orders * 5)
+        return (self.n_agents * (self.n_actions + 1)) + (self.n_orders * 5)
 
     def get_state(self):
+        if self.obs_instead_of_state:
+            obs_concat = np.concatenate(self.get_obs(), axis=0).astype(
+                np.float32
+            )
+            return obs_concat
         return None
 
     def get_state_size(self):
@@ -205,7 +307,7 @@ class AGVBased(MultiAgentEnv):
         """ Returns the available actions for agent_id """
         agent = self.get_agent_by_id(agent_id)
         avail_actions = [0] * self.n_actions
-        if not agent.busy:
+        if not agent["Busy"]:
             for attribute in DispatchingAttributes:
                 # 어떤 제약조건을 걸어서 0, 1로 진행가능
                 avail_actions[attribute] = 1
@@ -219,6 +321,7 @@ class AGVBased(MultiAgentEnv):
 
     def reset(self):
         """ Returns initial observations and states"""
+        self.init_agents()
         self._episode_steps = 0
         self.last_action = np.zeros((self.n_agents, self.n_actions))
         self.score = 0
@@ -231,6 +334,17 @@ class AGVBased(MultiAgentEnv):
 
         VTE_launch()
         self.start_time = time.time()
+
+        while True:
+            view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
+            columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+            idle_order_set = pd.DataFrame(view, columns=columns)
+            orders = idle_order_set.head(3)
+
+            if orders.shape[0] < 3:
+                time.sleep(1)
+            else:
+                break
         return None
 
     def render(self):
@@ -245,11 +359,11 @@ class AGVBased(MultiAgentEnv):
 
     def save_replay(self):
         """Save a replay."""
-        prefix = self.replay_prefix or self.map_name
-        replay_dir = self.replay_dir or ""
-        replay_path = self._run_config.save_replay(
-            self._controller.save_replay(), replay_dir=replay_dir, prefix=prefix)
-        logging.info("Replay saved at: %s" % replay_path)
+        # prefix = self.replay_prefix or self.map_name
+        # replay_dir = self.replay_dir or ""
+        # replay_path = self._run_config.save_replay(
+        #     self._controller.save_replay(), replay_dir=replay_dir, prefix=prefix)
+        # logging.info("Replay saved at: %s" % replay_path)
         return None
 
     def get_env_info(self):
@@ -262,34 +376,26 @@ class AGVBased(MultiAgentEnv):
 
     def init_agents(self):
         """Initialise the units."""
-        while True:
-            self.agents = {}
+        self.agents = {}
+        machine_id = self.Machines.agv_id.tolist()
+        for i in range(self.n_agents):
+            self.agents[i] = {"AGV_ID": machine_id[i], "Mileage": 0, "Busy": 0}
 
-            # region AGV groups
-            # ally_units = [
-            #     unit
-            #     for unit in self._obs.observation.raw_data.units
-            #     if unit.owner == 1
-            # ]
-            # ally_units_sorted = sorted(
-            #     ally_units,
-            #     key=attrgetter("unit_type", "pos.x", "pos.y"),
-            #     reverse=False,
-            # )
-            # for i in range(len(ally_units_sorted)):
-            #     self.agents[i] = ally_units_sorted[i]
-            #     if self.debug:
-            #         logging.debug(
-            #             "Unit {} is {}, x = {}, y = {}".format(
-            #                 len(self.agents),
-            #                 self.agents[i].unit_type,
-            #                 self.agents[i].pos.x,
-            #                 self.agents[i].pos.y,
-            #             )
-            #         )
-            # endregion
+        return None
 
-            all_agents_created = (len(self.agents) == self.n_agents)
+    def __AGV_update(self):
+        machine_id = self.Machines.agv_id.tolist()
+        agv_info = self.__getDataFrame(tb='tb_agv_control')
+        busy_agvs = self.DBMS.DML.select(tb='mcs_order', col='selected_agv_id',
+                                         cond="completed_date = 'None' AND assigned_date != ''")
+        for idx, val in enumerate(machine_id):
+            agent = self.get_obs_agent(idx)
+            self.MachineInfo[str(val)] = agv_info.loc[agv_info.agvId == val, :]
+
+            if agent['AGV_ID'] in busy_agvs:
+                agent["Busy"] = 1
+            else:
+                agent["Busy"] = 0
 
     def get_agent_by_id(self, index):
         """Get agent by ID."""
@@ -302,27 +408,57 @@ class AGVBased(MultiAgentEnv):
             "Agent {} cannot perform action {}".format(index, action)
 
         agent = self.get_agent_by_id(index)
-        tag = agent.tag
-        x = agent.pos.x
-        y = agent.pos.y
+        view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
+        columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+        idle_order_set = pd.DataFrame(view, columns=columns)
+        top50_order = idle_order_set.head(self.n_orders)
+        if top50_order.shape[0] == 0:
+            return None
+
+        min_dist = math.inf
+        min_job = None
+        max_dist = 0
+        max_job = None
+        time_dist = 0
+        time_job = None
+        for i in top50_order.index:
+            from_node = top50_order.loc[i, 'from_node']
+            to_node = top50_order.loc[i, 'to_node']
+
+            for identify, machine in self.MachineInfo.items():
+                cur_node = machine.loc[machine.addressName == 'CUR_NODE', 'addressValue']
+                _, distance = self.__getSPFARouting(cur_node.item(), from_node)
+                if i == 0:
+                    time_dist = distance
+                    time_job = top50_order.loc[i, 'uid']
+                if min_dist >= distance:
+                    min_dist = distance
+                    min_job = top50_order.loc[i, 'uid']
+                if max_dist <= distance:
+                    max_dist = distance
+                    max_job = top50_order.loc[i, 'uid']
 
         if action == DispatchingAttributes.DISTANCE:
-            # no-op (valid only when dead)
-            assert agent.health == 0, "No-op only available for dead agents."
+            job_id = min_job
+            agent['Mileage'] += min_dist
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum distance".format(index))
-            return None
         elif action == DispatchingAttributes.WAITINGTIME:
+            job_id = top50_order.loc[0, 'uid']
+            agent['Mileage'] += time_dist
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum waiting time".format(index))
         elif action == DispatchingAttributes.TRAVELINGTIME:
+            job_id = top50_order.loc[0, 'uid']
+            agent['Mileage'] += time_dist
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum traveling time".format(index))
-        elif action == DispatchingAttributes.LINEBALANCING:
+        else:
+            job_id = max_job
+            agent['Mileage'] += max_dist
             if self.debug:
                 logging.debug("Agent {} strategy: line balancing".format(index))
 
-        job_id = 1
         return job_id
 
     def get_agent_action_heuristic(self, index, action):
@@ -334,7 +470,7 @@ class AGVBased(MultiAgentEnv):
         columns = self.DBMS.DML.get_columns(tb=tb, on_tuple=False)
         return pd.DataFrame(view, columns=columns)
 
-    def __getSPFARouting__(self, begin, terminal):
+    def __getSPFARouting(self, begin, terminal):
         visit = {begin: 0}
         route = {begin: [begin]}
         q = [begin]
@@ -622,22 +758,3 @@ class AGVBased(MultiAgentEnv):
 #             dist = np.linalg.norm([to_coordinate.iat[0, 0] - from_coordinate.iat[0, 0],
 #                                    to_coordinate.iat[0, 1] - from_coordinate.iat[0, 1]])
 #         return dist
-
-def testcase():
-    db_config = dict()
-    db_config['host'] = '127.0.0.1'
-    db_config['user'] = 'root'
-    db_config['password'] = '151212kyhASH@'
-    db_config['port'] = int(3306)
-    db_config['database'] = 'lv2meblayer4'
-
-    Env = VTE(db_config)
-    sample = Env.reset()
-    print(Env.precheck(sample))
-    action = {'Machine': 1, 'Order': 2}
-    sample, _, _, _ = Env.step(action)
-    print(Env.precheck(sample))
-
-
-if __name__ == '__main__':
-    testcase()

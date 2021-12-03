@@ -18,13 +18,30 @@ pyautogui.moveTo(rtn)
 pyautogui.click()
 pyautogui.click()
 
-time.sleep(3)
+SW_HIDE = 0
+info = subprocess.STARTUPINFO()
+info.dwFlags = subprocess.STARTF_USESHOWWINDOW
+info.wShowWindow = SW_HIDE
+
+os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.ACS\Pinokio.ACS\bin\Debug')
+p2 = subprocess.Popen('Pinokio.ACS.exe',
+                      stdin=None, stdout=None, stderr=None,
+                      close_fds=True, startupinfo=info)
+time.sleep(5)
+
 png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
 rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
 pyautogui.moveTo(rtn)
 pyautogui.click()
 
-time.sleep(5)
+time.sleep(1)
+
+png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
+rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+pyautogui.moveTo(rtn)
+pyautogui.click()
+
+time.sleep(40)
 for proc in psutil.process_iter():
     try:
         # 프로세스 이름, PID값 가져오기
@@ -32,7 +49,7 @@ for proc in psutil.process_iter():
         processID = proc.pid
         print(processName, ' - ', processID)
 
-        if processName == "Pinokio.exe":
+        if processName == "Pinokio.exe" or processName == "Pinokio.ACS.exe":
             parent_pid = processID  # PID
             parent = psutil.Process(parent_pid)  # PID 찾기
             for child in parent.children(recursive=True):  # 자식-부모 종료
