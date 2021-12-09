@@ -1,5 +1,6 @@
 import enum
 import math
+import random
 import time
 import csv
 import psutil
@@ -229,26 +230,16 @@ class AGVBased(MultiAgentEnv):
 
         # terminated check
         terminated = False
-        if VTE_is_on_process() is False:
-            terminated = True
-
-        testtime = time.time() - self.start_time
-        if time.time() - self.start_time  > self.n_volumes:
-            terminated = True
-
-        if terminated:
-            self._episode_count += 1
-            f = open('D:/MnS/Pinokio.RL/TempResult.csv', 'a', newline='')
-            wr = csv.writer(f)
-            wr.writerow([production.shape[0]])
-            f.close()
 
         while True and not terminated:
             # Update units
             self.__AGV_update()
-            testtime = time.time() - self.start_time
+            if VTE_is_on_process() is False:
+                terminated = True
             if time.time() - self.start_time > self.n_volumes:
                 terminated = True
+
+            if terminated:
                 self._episode_count += 1
                 f = open('D:/MnS/Pinokio.RL/TempResult.csv', 'a', newline='')
                 wr = csv.writer(f)
@@ -511,6 +502,8 @@ class AGVBased(MultiAgentEnv):
                 if max_dist <= distance:
                     max_dist = distance
                     max_job = top_N_order.loc[i, 'uid']
+        if action == DispatchingAttributes.IDLE:
+            action = random.choice(range(1,len(DispatchingAttributes)))
 
         if action == DispatchingAttributes.DISTANCE:
             job_id = min_job
@@ -532,11 +525,6 @@ class AGVBased(MultiAgentEnv):
             agent['Mileage'] += max_dist
             if self.debug:
                 logging.debug("Agent {} strategy: line balancing".format(index))
-        else:
-            job_id = min_job
-            agent['Mileage'] += min_dist
-            if self.debug:
-                logging.debug("Agent {} strategy: Minimum distance".format(index))
         return job_id
 
     def get_agent_action_heuristic(self, index, action):
