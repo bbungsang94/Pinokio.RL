@@ -1,6 +1,8 @@
 import enum
 import math
 import time
+import csv
+import psutil
 import numpy as np
 import pandas as pd
 from absl import logging
@@ -10,22 +12,40 @@ from utils.DBManager import MariaManager
 
 
 class DispatchingAttributes(enum.IntEnum):
-    DISTANCE = 0
-    WAITINGTIME = 1
-    TRAVELINGTIME = 2
-    LINEBALANCING = 3
+    IDLE = 0
+    DISTANCE = 1
+    WAITINGTIME = 2
+    TRAVELINGTIME = 3
+    LINEBALANCING = 4
+
+
+def VTE_is_on_process():
+    counter = 0
+    for proc in psutil.process_iter():
+        try:
+            # 프로세스 이름, PID값 가져오기
+            proc_name = proc.name()
+
+            if proc_name == "Pinokio.exe" or proc_name == "Pinokio.ACS.exe":
+                counter += 1
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):  # 예외처리
+            pass
+
+    if counter == 2:
+        return True
+    else:
+        return False
 
 
 def VTE_kill_process():
-    import psutil
-
     for proc in psutil.process_iter():
         try:
             # 프로세스 이름, PID값 가져오기
             proc_name = proc.name()
             proc_id = proc.pid
 
-            if proc_name == "Pinokio.exe":
+            if proc_name == "Pinokio.exe" or proc_name == "Pinokio.ACS.exe":
                 parent_pid = proc_id  # PID
                 parent = psutil.Process(parent_pid)  # PID 찾기
                 for child in parent.children(recursive=True):  # 자식-부모 종료
@@ -88,7 +108,7 @@ def VTE_launch():
 class AGVBased(MultiAgentEnv):
     def __init__(self,
                  map_name="",
-                 end_time=8640,
+                 end_time=432,
                  continuing_episode=False,
                  reward_alpha=10,
                  reward_beta=0,
@@ -117,7 +137,7 @@ class AGVBased(MultiAgentEnv):
         self.MachineInfo = dict()
 
         self.n_agents = len(self.Machines)
-        self.n_orders = 20
+        self.n_orders = 10
         self.n_volumes = end_time
         self.episode_limit = map_params["limit"]
         self.score = 0
@@ -130,6 +150,7 @@ class AGVBased(MultiAgentEnv):
 
         # reward
         self.reward_scale = reward_scale
+        self.target_production = 500
         # n actions
         self.n_actions = len(DispatchingAttributes)
 
@@ -156,6 +177,10 @@ class AGVBased(MultiAgentEnv):
         if self.heuristic_ai:
             self.heuristic_targets = [None] * self.n_agents
 
+        # Utility
+        #self.spfa_root = 0
+        self.spfa_dist_set = dict()
+
     def step(self, actions):
         """ Returns reward, terminated, info """
         actions_int = [int(a) for a in actions]
@@ -166,6 +191,8 @@ class AGVBased(MultiAgentEnv):
             logging.debug("Actions".center(60, "-"))
 
         for index, action in enumerate(actions_int):
+            if not self.get_avail_agent(index):
+                continue
             if not self.heuristic_ai:
                 job_id = self.get_agent_action(index, action)
             else:
@@ -182,34 +209,71 @@ class AGVBased(MultiAgentEnv):
                                      cond='uid = ' + str(job_id))
                 agent["Busy"] = 1
 
-        # terminated check
-        terminated = False
-        if self.start_time - time.time() > self.n_volumes:
-            terminated = True
-
-        if terminated:
-            self._episode_count += 1
         # reward
         view = self.DBMS.DML.select_all(tb='mcs_order', cond="completed_date != 'None'")
         columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
         production = pd.DataFrame(view, columns=columns)
-        reward = 1.0 - math.exp(-10.0 * float(production.shape[0]))
+        reward = 1.0 - math.exp(-4 * (float(production.shape[0]) / self.target_production))  # Team reward
 
-        while True:
+        mile_max = 0.0
+        mile_min = math.inf
+        for i in range(self.n_agents):
+            temp_agent = self.agents[i]
+            if mile_max < temp_agent['Mileage']:
+                mile_max = temp_agent['Mileage']
+            if mile_min > temp_agent['Mileage']:
+                mile_min = temp_agent['Mileage']
+
+        if not mile_min == 0.0 and mile_max == 0.0:
+            reward += math.exp(-2 * 1 - (mile_min / mile_max))  # Agent Mile reward
+
+        # terminated check
+        terminated = False
+        if VTE_is_on_process() is False:
+            terminated = True
+
+        testtime = time.time() - self.start_time
+        if time.time() - self.start_time  > self.n_volumes:
+            terminated = True
+
+        if terminated:
+            self._episode_count += 1
+            f = open('D:/MnS/Pinokio.RL/TempResult.csv', 'a', newline='')
+            wr = csv.writer(f)
+            wr.writerow([production.shape[0]])
+            f.close()
+
+        while True and not terminated:
+            # Update units
+            self.__AGV_update()
+            testtime = time.time() - self.start_time
+            if time.time() - self.start_time > self.n_volumes:
+                terminated = True
+                self._episode_count += 1
+                f = open('D:/MnS/Pinokio.RL/TempResult.csv', 'a', newline='')
+                wr = csv.writer(f)
+                wr.writerow([production.shape[0]])
+                f.close()
+                break
+
+            pass_flag = False
+            for index, _ in enumerate(actions_int):
+                if self.get_avail_agent(index):
+                    pass_flag = True
+                    break
+            if not pass_flag:
+                continue
+
             view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
             columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
             idle_order_set = pd.DataFrame(view, columns=columns)
             orders = idle_order_set.head(3)
 
             if orders.shape[0] == 0:
-                time.sleep(1)
+                time.sleep(0.1)
             else:
                 break
-
-        # Update units
-        self.__AGV_update()
-
-        return None
+        return reward, terminated, {}
 
     def get_obs(self):
         """ Returns all agent observations in a list """
@@ -220,15 +284,15 @@ class AGVBased(MultiAgentEnv):
         """ Returns observation for agent_id """
         self.__AGV_update()
 
-        # load 50-order info
+        # load N-order info
         view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
         columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
         idle_order_set = pd.DataFrame(view, columns=columns)
-        top50_order = idle_order_set.head(self.n_orders)
+        top_N_order = idle_order_set.head(self.n_orders)
 
         # agent attributes - Id, Minimum dist among orders, Maximum dist among orders, Mileage
         agent = self.get_agent_by_id(agent_id)
-        agent_feats = np.zeros(4, dtype=np.float32)
+        agent_feats = np.zeros(5, dtype=np.float32)
         agent_feats[0] = agent['AGV_ID']
         agent_feats[1] = math.inf
         agent_feats[2] = 0
@@ -238,15 +302,15 @@ class AGVBased(MultiAgentEnv):
         # extract 5 attributes Id, fromX, fromY, toX, toY
         order_feats = np.zeros((self.n_orders, 5), dtype=np.float32)
         dummy_count = 0
-        for i in top50_order.index:
-            from_node = top50_order.loc[i, 'from_node']
-            to_node = top50_order.loc[i, 'to_node']
-            from_cdi = self.MapCoordinate.loc[self.MapCoordinate.node_id == from_node,
+        for i in top_N_order.index:
+            from_node = top_N_order.loc[i, 'from_node']
+            to_node = top_N_order.loc[i, 'to_node']
+            from_cdi = self.MapCoordinate.loc[self.MapCoordinate.node_id == int(from_node),
                                               ['x_coordinate', 'y_coordinate']]
-            to_cdi = self.MapCoordinate.loc[self.MapCoordinate.node_id == to_node,
+            to_cdi = self.MapCoordinate.loc[self.MapCoordinate.node_id == int(to_node),
                                             ['x_coordinate', 'y_coordinate']]
 
-            order_feats[dummy_count, 0] = top50_order.loc[i, 'uid']
+            order_feats[dummy_count, 0] = top_N_order.loc[i, 'uid']
             order_feats[dummy_count, 1] = from_cdi.iat[0, 0]
             order_feats[dummy_count, 2] = from_cdi.iat[0, 1]
             order_feats[dummy_count, 3] = to_cdi.iat[0, 0]
@@ -254,14 +318,14 @@ class AGVBased(MultiAgentEnv):
 
             for identify, machine in self.MachineInfo.items():
                 cur_node = machine.loc[machine.addressName == 'CUR_NODE', 'addressValue']
-                _, distance = self.__getSPFARouting(cur_node.item(), from_node)
+                distance = self.__getDistance(cur_node.item(), from_node)
                 if agent_feats[1] >= distance:
                     agent_feats[1] = distance
                 if agent_feats[2] <= distance:
                     agent_feats[2] = distance
 
             dummy_count += 1
-        for i in range(50 - dummy_count):
+        for i in range(self.n_orders - dummy_count):
             order_feats[dummy_count, 0] = 0
             order_feats[dummy_count, 1] = math.inf
             order_feats[dummy_count, 2] = math.inf
@@ -279,7 +343,8 @@ class AGVBased(MultiAgentEnv):
 
     def get_obs_size(self):
         """ Returns the shape of the observation """
-        return (self.n_agents * (self.n_actions + 1)) + (self.n_orders * 5)
+        rtn = 5 + self.n_orders * 5
+        return rtn
 
     def get_state(self):
         if self.obs_instead_of_state:
@@ -306,13 +371,19 @@ class AGVBased(MultiAgentEnv):
     def get_avail_agent_actions(self, agent_id):
         """ Returns the available actions for agent_id """
         agent = self.get_agent_by_id(agent_id)
-        avail_actions = [0] * self.n_actions
-        if not agent["Busy"]:
+        avail_actions = [1] * self.n_actions
+        if agent["Busy"]:
             for attribute in DispatchingAttributes:
-                # 어떤 제약조건을 걸어서 0, 1로 진행가능
-                avail_actions[attribute] = 1
-
+                if not attribute == DispatchingAttributes.IDLE:
+                    avail_actions[attribute] = 0
         return avail_actions
+
+    def get_avail_agent(self, agent_id):
+        agent = self.get_agent_by_id(agent_id)
+        if agent["Busy"] == 1:
+            return False
+        else:
+            return True
 
     def get_total_actions(self):
         """ Returns the total number of actions an agent could ever take """
@@ -325,7 +396,6 @@ class AGVBased(MultiAgentEnv):
         self._episode_steps = 0
         self.last_action = np.zeros((self.n_agents, self.n_actions))
         self.score = 0
-        self._obs = self._controller.observe()
 
         if self.heuristic_ai:
             self.heuristic_targets = [None] * self.n_agents
@@ -341,7 +411,7 @@ class AGVBased(MultiAgentEnv):
             idle_order_set = pd.DataFrame(view, columns=columns)
             orders = idle_order_set.head(3)
 
-            if orders.shape[0] < 3:
+            if orders.shape[0] < 1:
                 time.sleep(1)
             else:
                 break
@@ -387,10 +457,11 @@ class AGVBased(MultiAgentEnv):
         machine_id = self.Machines.agv_id.tolist()
         agv_info = self.__getDataFrame(tb='tb_agv_control')
         busy_agvs = self.DBMS.DML.select(tb='mcs_order', col='selected_agv_id',
-                                         cond="completed_date = 'None' AND assigned_date != ''")
+                                         cond="completed_date = 'None' AND assigned_date != 'None'")
+        busy_agvs = pd.DataFrame(busy_agvs).values
         for idx, val in enumerate(machine_id):
-            agent = self.get_obs_agent(idx)
-            self.MachineInfo[str(val)] = agv_info.loc[agv_info.agvId == val, :]
+            agent = self.agents[idx]
+            self.MachineInfo[str(val)] = agv_info.loc[agv_info.agvid == val, :]
 
             if agent['AGV_ID'] in busy_agvs:
                 agent["Busy"] = 1
@@ -411,8 +482,8 @@ class AGVBased(MultiAgentEnv):
         view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
         columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
         idle_order_set = pd.DataFrame(view, columns=columns)
-        top50_order = idle_order_set.head(self.n_orders)
-        if top50_order.shape[0] == 0:
+        top_N_order = idle_order_set.head(self.n_orders)
+        if top_N_order.shape[0] == 0:
             return None
 
         min_dist = math.inf
@@ -421,22 +492,25 @@ class AGVBased(MultiAgentEnv):
         max_job = None
         time_dist = 0
         time_job = None
-        for i in top50_order.index:
-            from_node = top50_order.loc[i, 'from_node']
-            to_node = top50_order.loc[i, 'to_node']
+        job_id = None
+        for i in top_N_order.index:
+            from_node = top_N_order.loc[i, 'from_node']
+            to_node = top_N_order.loc[i, 'to_node']
 
             for identify, machine in self.MachineInfo.items():
                 cur_node = machine.loc[machine.addressName == 'CUR_NODE', 'addressValue']
-                _, distance = self.__getSPFARouting(cur_node.item(), from_node)
+                distance = self.__getDistance(cur_node.item(), from_node)
                 if i == 0:
                     time_dist = distance
-                    time_job = top50_order.loc[i, 'uid']
+                    time_job = top_N_order.loc[i, 'uid']
                 if min_dist >= distance:
+                    if distance < 1.0:
+                        continue
                     min_dist = distance
-                    min_job = top50_order.loc[i, 'uid']
+                    min_job = top_N_order.loc[i, 'uid']
                 if max_dist <= distance:
                     max_dist = distance
-                    max_job = top50_order.loc[i, 'uid']
+                    max_job = top_N_order.loc[i, 'uid']
 
         if action == DispatchingAttributes.DISTANCE:
             job_id = min_job
@@ -444,21 +518,25 @@ class AGVBased(MultiAgentEnv):
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum distance".format(index))
         elif action == DispatchingAttributes.WAITINGTIME:
-            job_id = top50_order.loc[0, 'uid']
+            job_id = top_N_order.loc[0, 'uid']
             agent['Mileage'] += time_dist
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum waiting time".format(index))
         elif action == DispatchingAttributes.TRAVELINGTIME:
-            job_id = top50_order.loc[0, 'uid']
+            job_id = top_N_order.loc[0, 'uid']
             agent['Mileage'] += time_dist
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum traveling time".format(index))
-        else:
+        elif action == DispatchingAttributes.LINEBALANCING:
             job_id = max_job
             agent['Mileage'] += max_dist
             if self.debug:
                 logging.debug("Agent {} strategy: line balancing".format(index))
-
+        else:
+            job_id = min_job
+            agent['Mileage'] += min_dist
+            if self.debug:
+                logging.debug("Agent {} strategy: Minimum distance".format(index))
         return job_id
 
     def get_agent_action_heuristic(self, index, action):
@@ -470,17 +548,33 @@ class AGVBased(MultiAgentEnv):
         columns = self.DBMS.DML.get_columns(tb=tb, on_tuple=False)
         return pd.DataFrame(view, columns=columns)
 
+    def __getDistance(self, begin, terminal):
+        if begin in self.spfa_dist_set and terminal in self.spfa_dist_set:
+            begin_dist = self.spfa_dist_set[begin]
+            terminal_dist = self.spfa_dist_set[terminal]
+            dist = abs(terminal_dist - begin_dist)
+
+        else:
+            _, dist = self.__getSPFARouting(begin, terminal)
+
+        return dist
+
     def __getSPFARouting(self, begin, terminal):
         visit = {begin: 0}
         route = {begin: [begin]}
         q = [begin]
         node = begin
+
+        self.spfa_root = begin
+        self.spfa_dist_set = visit
+
         while len(q) != 0:
-            candidates = self.LinkInfo.loc[self.LinkInfo.fromNode == node,
+            candidates = self.LinkInfo.loc[self.LinkInfo.base_node == int(node),
                                            ['link_id', 'link_node', 'weight']]
 
             for idx in candidates.index:
                 temp_node = candidates.loc[idx, 'link_node']
+                temp_node = str(temp_node)
                 distance = candidates.loc[idx, 'weight']
 
                 if temp_node in visit:

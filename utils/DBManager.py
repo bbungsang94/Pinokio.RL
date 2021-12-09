@@ -32,7 +32,7 @@ class MariaManager:
     def __connect(self, config):
         try:
             if platform.system() == 'Windows':
-                auto = False
+                auto = True
             else:  # Mac에서 트랜잭션 작업을 진행함
                 auto = True
 
@@ -56,7 +56,6 @@ class MariaManager:
 
             if cond is not None:
                 query += ' WHERE ' + cond
-
             self.Cursor.execute(query)
             return self.Cursor.fetchall()
 
@@ -122,7 +121,7 @@ class MariaManager:
             if cond is not None:
                 query += ' WHERE ' + cond
             self.Cursor.execute(query)
-            self.Connector.commit()
+            #self.Connector.commit()
             return "Update columns: " + ", ".join(columns)
 
         # endregion

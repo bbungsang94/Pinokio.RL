@@ -2,7 +2,7 @@ env: AGV_Dispatching
 
 env_args:
   map_name: ''
-  end_time: 8640
+  end_time: 435
   continuing_episode: False
   reward_alpha: 10
   reward_beta: 0
