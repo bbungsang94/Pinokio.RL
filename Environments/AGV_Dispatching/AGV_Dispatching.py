@@ -1,11 +1,15 @@
 import enum
 import math
+import os
 import random
 import time
 import csv
 import psutil
 import numpy as np
 import pandas as pd
+import subprocess
+import pyautogui
+from PIL import Image
 from absl import logging
 from Environments.multiagentenv import MultiAgentEnv
 from Environments.AGV_Dispatching.Maps import get_map_params
@@ -58,52 +62,49 @@ def VTE_kill_process():
 
 
 def VTE_launch():
-    import os
-    import subprocess
-    import pyautogui
-    import time
-    from PIL import Image
+    try:
+        VTE_kill_process()
 
-    VTE_kill_process()
+        od = os.curdir
+        os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.VTE\Pinokio.VTE\bin\Debug')
+        subprocess.Popen('Pinokio.exe',
+                         shell=True, stdin=None, stdout=None, stderr=None,
+                         close_fds=True)
+        time.sleep(3)
+        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
+        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(rtn)
+        pyautogui.click()
+        pyautogui.click()
 
-    od = os.curdir
-    os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.VTE\Pinokio.VTE\bin\Debug')
-    subprocess.Popen('Pinokio.exe',
-                     shell=True, stdin=None, stdout=None, stderr=None,
-                     close_fds=True)
-    time.sleep(3)
-    png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
-    rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-    pyautogui.moveTo(rtn)
-    pyautogui.click()
-    pyautogui.click()
+        SW_HIDE = 0
+        info = subprocess.STARTUPINFO()
+        info.dwFlags = subprocess.STARTF_USESHOWWINDOW
+        info.wShowWindow = SW_HIDE
 
-    SW_HIDE = 0
-    info = subprocess.STARTUPINFO()
-    info.dwFlags = subprocess.STARTF_USESHOWWINDOW
-    info.wShowWindow = SW_HIDE
+        os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.ACS\Pinokio.ACS\bin\Debug')
+        p2 = subprocess.Popen('Pinokio.ACS.exe',
+                              stdin=None, stdout=None, stderr=None,
+                              close_fds=True, startupinfo=info)
+        time.sleep(5)
 
-    os.chdir(r'D:\MnS\Pinokio.V2\Pinokio.ACS\Pinokio.ACS\bin\Debug')
-    p2 = subprocess.Popen('Pinokio.ACS.exe',
-                          stdin=None, stdout=None, stderr=None,
-                          close_fds=True, startupinfo=info)
-    time.sleep(5)
+        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
+        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(rtn)
+        pyautogui.click()
 
-    png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
-    rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-    pyautogui.moveTo(rtn)
-    pyautogui.click()
+        time.sleep(1)
 
-    time.sleep(1)
+        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
+        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(rtn)
+        pyautogui.click()
 
-    png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
-    rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-    pyautogui.moveTo(rtn)
-    pyautogui.click()
+        os.chdir(od)
 
-    os.chdir(od)
-
-    return None
+        return True
+    except pyautogui.FailSafeException:
+        return False
 
 
 class AGVBased(MultiAgentEnv):
@@ -111,9 +112,8 @@ class AGVBased(MultiAgentEnv):
                  map_name="",
                  end_time=432,
                  continuing_episode=False,
-                 reward_alpha=10,
-                 reward_beta=0,
-                 reward_theta=0.5,
+                 order_view=50,
+                 target_production=500,
                  reward_scale=True,
                  state_last_action=True,
                  state_timestep_number=False,
@@ -125,6 +125,7 @@ class AGVBased(MultiAgentEnv):
                  replay_dir="",
                  replay_prefix="",
                  debug=False,
+                 history=False,
 
                  ):
         # Map arguments
@@ -138,7 +139,7 @@ class AGVBased(MultiAgentEnv):
         self.MachineInfo = dict()
 
         self.n_agents = len(self.Machines)
-        self.n_orders = 10
+        self.n_orders = order_view
         self.n_volumes = end_time
         self.episode_limit = map_params["limit"]
         self.score = 0
@@ -151,7 +152,8 @@ class AGVBased(MultiAgentEnv):
 
         # reward
         self.reward_scale = reward_scale
-        self.target_production = 500
+        self.target_production = target_production
+        self.now_production = 0
         # n actions
         self.n_actions = len(DispatchingAttributes)
 
@@ -166,9 +168,24 @@ class AGVBased(MultiAgentEnv):
         self._run_config = None
         self._controller = None
 
-        # Replay setting
+        # History setting
         self.replay_dir = replay_dir
         self.replay_prefix = replay_prefix
+        self.history = {'Enable': history}
+        if self.history['Enable'] is True:
+            date = time.strftime('%m-%d-%Y %H%M%S', time.localtime(time.time()))
+            self.history['Path'] = 'D:/MnS/Pinokio.RL/results/AGV_Dispatching/action_history' + date + '/'
+            if not os.path.exists(self.history['Path']):
+                os.makedirs(self.history['Path'])
+            self.history['Data'] = {'Selected strategy': [],
+                                    'Order ID': [],
+                                    'Dispatched AGV': [],
+                                    'Registered time': [],
+                                    'Assigned time': [],
+                                    'Complete orders': [],
+                                    'AGV mileage': [],
+                                    }
+            self.history['Action index'] = ['IDLE', 'DISTANCE', 'WAITING TIME', 'TRAVELING TIME', 'LINE BALANCING']
         self.debug = debug
 
         # heuristics
@@ -179,7 +196,8 @@ class AGVBased(MultiAgentEnv):
             self.heuristic_targets = [None] * self.n_agents
 
         # Utility
-        #self.spfa_root = 0
+        # self.spfa_root = 0
+        self.continuing_episode = continuing_episode
         self.spfa_dist_set = dict()
 
     def step(self, actions):
@@ -195,26 +213,37 @@ class AGVBased(MultiAgentEnv):
             if not self.get_avail_agent(index):
                 continue
             if not self.heuristic_ai:
-                job_id = self.get_agent_action(index, action)
+                strategy = self.get_agent_action(index, action)
             else:
-                job_id, action_num = self.get_agent_action_heuristic(index, action)
+                strategy, action_num = self.get_agent_action_heuristic(index, action)
                 actions[index] = action_num
 
-            if job_id is not None:
+            if strategy is not None:
                 # Send action request
                 agent = self.get_agent_by_id(index)
                 assign = ["selected_agv_id", "status", "assigned_date"]
                 assign_time = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(time.time()))
                 self.DBMS.DML.update(tb='mcs_order', columns=assign,
                                      values=[str(agent['AGV_ID']), str(1), '"' + str(assign_time) + '"'],
-                                     cond='uid = ' + str(job_id))
+                                     cond='uid = ' + str(strategy['job id']))
                 agent["Busy"] = 1
+
+                if self.history['Enable'] is True:
+                    data = self.history['Data']
+                    data['Selected strategy'].append(self.history['Action index'][action])
+                    data['Order ID'].append(strategy['job id'])
+                    data['Dispatched AGV'].append(agent['AGV_ID'])
+                    data['Registered time'].append(strategy['registered time'])
+                    data['Assigned time'].append(assign_time)
+                    data['Complete orders'].append(self.now_production)
+                    data['AGV mileage'].append(agent['Mileage'])
 
         # reward
         view = self.DBMS.DML.select_all(tb='mcs_order', cond="completed_date != 'None'")
         columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
         production = pd.DataFrame(view, columns=columns)
-        reward = 1.0 - math.exp(-4 * (float(production.shape[0]) / self.target_production))  # Team reward
+        self.now_production = production.shape[0]
+        reward = 1.0 - math.exp(-4 * (float(self.now_production) / self.target_production))  # Team reward
 
         mile_max = 0.0
         mile_min = math.inf
@@ -240,6 +269,16 @@ class AGVBased(MultiAgentEnv):
                 terminated = True
 
             if terminated:
+                view = self.DBMS.DML.select_all(tb='mcs_order', cond="completed_date != 'None'")
+                columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+                production = pd.DataFrame(view, columns=columns)
+                self.now_production = production.shape[0]
+
+                if self.history['Enable'] is True:
+                    data = self.history['Data']
+                    output = pd.DataFrame(data)
+                    filename = self.history['Path'] + 'action_history(' + str(self._episode_count) + ').csv'
+                    output.to_csv(filename, sep=',')
                 self._episode_count += 1
                 f = open('D:/MnS/Pinokio.RL/TempResult.csv', 'a', newline='')
                 wr = csv.writer(f)
@@ -383,17 +422,33 @@ class AGVBased(MultiAgentEnv):
 
     def reset(self):
         """ Returns initial observations and states"""
+        if self.continuing_episode is True:
+            return
         self.init_agents()
         self._episode_steps = 0
         self.last_action = np.zeros((self.n_agents, self.n_actions))
+        self.now_production = 0
         self.score = 0
+
+        if self.history['Enable'] is True:
+            self.history['Data'] = {'Selected strategy': [],
+                                    'Order ID': [],
+                                    'Dispatched AGV': [],
+                                    'Registered time': [],
+                                    'Assigned time': [],
+                                    'Complete orders': [],
+                                    'AGV mileage': [],
+                                    }
 
         if self.heuristic_ai:
             self.heuristic_targets = [None] * self.n_agents
 
         # observation, state 초기화
 
-        VTE_launch()
+        launch_check = VTE_launch()
+        if launch_check is False:
+            VTE_kill_process()
+            return None
         self.start_time = time.time()
 
         while True:
@@ -478,12 +533,12 @@ class AGVBased(MultiAgentEnv):
             return None
 
         min_dist = math.inf
-        min_job = None
         max_dist = 0
-        max_job = None
-        time_dist = 0
-        time_job = None
-        job_id = None
+        strategies = {'Shortest': {'job id': 0, 'distance': 0, 'registered time': ''},
+                      'Minimum waiting': {'job id': 0, 'distance': 0, 'registered time': ''},
+                      'Minimum traveling': {'job id': 0, 'distance': 0, 'registered time': ''},
+                      'Line balancing': {'job id': 0, 'distance': 0, 'registered time': ''},
+                      }
         for i in top_N_order.index:
             from_node = top_N_order.loc[i, 'from_node']
             to_node = top_N_order.loc[i, 'to_node']
@@ -492,40 +547,47 @@ class AGVBased(MultiAgentEnv):
                 cur_node = machine.loc[machine.addressName == 'CUR_NODE', 'addressValue']
                 distance = self.__getDistance(cur_node.item(), from_node)
                 if i == 0:
-                    time_dist = distance
-                    time_job = top_N_order.loc[i, 'uid']
+                    strategies['Minimum waiting'] = {'job id': top_N_order.loc[i, 'uid'],
+                                                     'distance': distance,
+                                                     'registered time': top_N_order.loc[i, 'registration_date']}
+                    strategies['Minimum traveling'] = {'job id': top_N_order.loc[i, 'uid'],
+                                                       'distance': distance,
+                                                       'registered time': top_N_order.loc[i, 'registration_date']}
                 if min_dist >= distance:
                     if distance < 1.0:
                         continue
+
+                    strategies['Shortest'] = {'job id': top_N_order.loc[i, 'uid'],
+                                              'distance': distance,
+                                              'registered time': top_N_order.loc[i, 'registration_date']}
                     min_dist = distance
-                    min_job = top_N_order.loc[i, 'uid']
                 if max_dist <= distance:
+                    strategies['Line balancing'] = {'job id': top_N_order.loc[i, 'uid'],
+                                                    'distance': distance,
+                                                    'registered time': top_N_order.loc[i, 'registration_date']}
                     max_dist = distance
-                    max_job = top_N_order.loc[i, 'uid']
         if action == DispatchingAttributes.IDLE:
-            action = random.choice(range(1,len(DispatchingAttributes)))
+            action = random.choice(range(1, len(DispatchingAttributes)))
 
         if action == DispatchingAttributes.DISTANCE:
-            job_id = min_job
-            agent['Mileage'] += min_dist
+            strategy = strategies['Shortest']
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum distance".format(index))
         elif action == DispatchingAttributes.WAITINGTIME:
-            job_id = top_N_order.loc[0, 'uid']
-            agent['Mileage'] += time_dist
+            strategy = strategies['Minimum waiting']
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum waiting time".format(index))
         elif action == DispatchingAttributes.TRAVELINGTIME:
-            job_id = top_N_order.loc[0, 'uid']
-            agent['Mileage'] += time_dist
+            strategy = strategies['Minimum traveling']
             if self.debug:
                 logging.debug("Agent {} strategy: Minimum traveling time".format(index))
-        elif action == DispatchingAttributes.LINEBALANCING:
-            job_id = max_job
-            agent['Mileage'] += max_dist
+        else:
+            strategy = strategies['Line balancing']
             if self.debug:
                 logging.debug("Agent {} strategy: line balancing".format(index))
-        return job_id
+
+        agent['Mileage'] += strategy['distance']
+        return strategy
 
     def get_agent_action_heuristic(self, index, action):
         # 안쓸래
