@@ -26,31 +26,34 @@ class DispatchingAttributes(enum.IntEnum):
 
 def VTE_is_on_process():
     counter = 0
+    processes = ["Pinokio.exe", "Pinokio.ACS.exe"]
+    #processes = ["Pinokio.exe"]
     for proc in psutil.process_iter():
         try:
             # 프로세스 이름, PID값 가져오기
             proc_name = proc.name()
 
-            if proc_name == "Pinokio.exe" or proc_name == "Pinokio.ACS.exe":
+            if proc_name in processes:
                 counter += 1
 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):  # 예외처리
             pass
 
-    if counter == 2:
+    if counter == len(processes):
         return True
     else:
         return False
 
 
 def VTE_kill_process():
+    processes = ["Pinokio.exe", "Pinokio.ACS.exe"]
     for proc in psutil.process_iter():
         try:
             # 프로세스 이름, PID값 가져오기
             proc_name = proc.name()
             proc_id = proc.pid
 
-            if proc_name == "Pinokio.exe" or proc_name == "Pinokio.ACS.exe":
+            if proc_name in processes:
                 parent_pid = proc_id  # PID
                 parent = psutil.Process(parent_pid)  # PID 찾기
                 for child in parent.children(recursive=True):  # 자식-부모 종료
@@ -184,6 +187,7 @@ class AGVBased(MultiAgentEnv):
                                     'Assigned time': [],
                                     'Complete orders': [],
                                     'AGV mileage': [],
+                                    'Reward': [],
                                     }
             self.history['Action index'] = ['IDLE', 'DISTANCE', 'WAITING TIME', 'TRAVELING TIME', 'LINE BALANCING']
         self.debug = debug
@@ -255,11 +259,16 @@ class AGVBased(MultiAgentEnv):
                 mile_min = temp_agent['Mileage']
 
         if not mile_min == 0.0 and mile_max == 0.0:
-            reward += math.exp(-2 * 1 - (mile_min / mile_max))  # Agent Mile reward
+            reward = math.exp(-2 * 1 - (mile_min / mile_max))  # Agent Mile reward
+
+        self.score += reward
+        if self.history['Enable'] is True:
+            data = self.history['Data']
+            data['Reward'] = reward
 
         # terminated check
         terminated = False
-
+        deadlock_time = time.time()
         while True and not terminated:
             # Update units
             self.__AGV_update()
@@ -267,6 +276,14 @@ class AGVBased(MultiAgentEnv):
                 terminated = True
             if time.time() - self.start_time > self.n_volumes:
                 terminated = True
+            if time.time() - deadlock_time > 20:
+                import pyautogui
+                if self.history['Enable'] is True:
+                    date = time.strftime('%m-%d-%Y %H%M%S', time.localtime(time.time()))
+                    filename = self.history['Path'] + date + '.png'
+                    pyautogui.screenshot(filename, region=(0, 0, 1920, 1080))
+                terminated = True
+                reward = -10
 
             if terminated:
                 view = self.DBMS.DML.select_all(tb='mcs_order', cond="completed_date != 'None'")
@@ -279,11 +296,18 @@ class AGVBased(MultiAgentEnv):
                     output = pd.DataFrame(data)
                     filename = self.history['Path'] + 'action_history(' + str(self._episode_count) + ').csv'
                     output.to_csv(filename, sep=',')
-                self._episode_count += 1
-                f = open('D:/MnS/Pinokio.RL/TempResult.csv', 'a', newline='')
+                filename = self.history['Path'] + 'Result.csv'
+
+                if os.path.isfile(filename):
+                    f = open(filename, 'a', newline='')
+                else:
+                    f = open(filename, 'w', newline='')
+
                 wr = csv.writer(f)
-                wr.writerow([production.shape[0]])
+                wr.writerow([production.shape[0], self.score])
                 f.close()
+
+                self._episode_count += 1
                 break
 
             pass_flag = False
@@ -303,6 +327,7 @@ class AGVBased(MultiAgentEnv):
                 time.sleep(0.1)
             else:
                 break
+
         return reward, terminated, {}
 
     def get_obs(self):
@@ -312,7 +337,6 @@ class AGVBased(MultiAgentEnv):
 
     def get_obs_agent(self, agent_id):
         """ Returns observation for agent_id """
-        self.__AGV_update()
 
         # load N-order info
         view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
@@ -357,10 +381,10 @@ class AGVBased(MultiAgentEnv):
             dummy_count += 1
         for i in range(self.n_orders - dummy_count):
             order_feats[dummy_count, 0] = 0
-            order_feats[dummy_count, 1] = math.inf
-            order_feats[dummy_count, 2] = math.inf
-            order_feats[dummy_count, 3] = math.inf
-            order_feats[dummy_count, 4] = math.inf
+            order_feats[dummy_count, 1] = 0
+            order_feats[dummy_count, 2] = 0
+            order_feats[dummy_count, 3] = 0
+            order_feats[dummy_count, 4] = 0
 
         agent_obs = np.concatenate(
             (
@@ -406,6 +430,8 @@ class AGVBased(MultiAgentEnv):
             for attribute in DispatchingAttributes:
                 if not attribute == DispatchingAttributes.IDLE:
                     avail_actions[attribute] = 0
+        else:
+            avail_actions[DispatchingAttributes.IDLE] = 0
         return avail_actions
 
     def get_avail_agent(self, agent_id):
@@ -438,6 +464,7 @@ class AGVBased(MultiAgentEnv):
                                     'Assigned time': [],
                                     'Complete orders': [],
                                     'AGV mileage': [],
+                                    'Reward': [],
                                     }
 
         if self.heuristic_ai:
@@ -450,7 +477,7 @@ class AGVBased(MultiAgentEnv):
             VTE_kill_process()
             return None
         self.start_time = time.time()
-
+        self.__AGV_update()
         while True:
             view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
             columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
@@ -521,6 +548,9 @@ class AGVBased(MultiAgentEnv):
     def get_agent_action(self, index, action):
         """Construct the action for agent a_id."""
         avail_actions = self.get_avail_agent_actions(index)
+        if avail_actions[action] != 1:
+            agent = self.get_agent_by_id(index)
+            test = agent['Busy']
         assert avail_actions[action] == 1, \
             "Agent {} cannot perform action {}".format(index, action)
 
