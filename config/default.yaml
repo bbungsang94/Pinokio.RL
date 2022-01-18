@@ -1,7 +1,7 @@
 # --- Defaults ---
 
 # --- pymarl options ---
-runner: "episode" # Runs 1 env for an episode
+runner: "episode_V3" # Runs 1 env for an episode
 mac: "basic_mac" # Basic controller
 env: "AGV_Dispatching" # Environment name
 env_args: {} # Arguments for the environment

@@ -34,6 +34,8 @@ env_args:
   TimeOut: 300
   Preview: 1
   History: True
+  seed: None
+  EpisodeLimit: 500
 
 test_greedy: True
 test_nepisode: 32
