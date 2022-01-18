@@ -1,5 +1,6 @@
 from functools import partial
-from Environments.AGV_Dispatching.AGV_Dispatching import MultiAgentEnv, AGVBased
+from Environments.AGV_Dispatching.AGV_Dispatching import MultiAgentEnv, AGVBasedFeature
+from Environments.Tetris.Tetris_basic import Tetris_single, Tetris_multi
 import sys
 import os
 
@@ -8,7 +9,9 @@ def env_fn(env, **kwargs) -> MultiAgentEnv:
     return env(**kwargs)
 
 
-REGISTRY = {'AGV_Dispatching': partial(env_fn, env=AGVBased)}
+REGISTRY = {'AGV_Dispatching': partial(env_fn, env=AGVBasedFeature),
+            'Tetris_single': partial(env_fn, env=Tetris_single),
+            'Tetris_multi': partial(env_fn, env=Tetris_multi)}
 
 if sys.platform == "linux":
     os.environ.setdefault("AGV_Path",

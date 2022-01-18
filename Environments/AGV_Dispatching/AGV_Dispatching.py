@@ -2,6 +2,7 @@ import enum
 import math
 import os
 import random
+import datetime
 import time
 import csv
 import psutil
@@ -27,7 +28,7 @@ class DispatchingAttributes(enum.IntEnum):
 def VTE_is_on_process():
     counter = 0
     processes = ["Pinokio.exe", "Pinokio.ACS.exe"]
-    #processes = ["Pinokio.exe"]
+    # processes = ["Pinokio.exe"]
     for proc in psutil.process_iter():
         try:
             # 프로세스 이름, PID값 가져오기
@@ -74,9 +75,10 @@ def VTE_launch():
                          shell=True, stdin=None, stdout=None, stderr=None,
                          close_fds=True)
         time.sleep(3)
-        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
-        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-        pyautogui.moveTo(rtn)
+        # png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
+        # rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(478, 144)
+        time.sleep(0.2)
         pyautogui.click()
         pyautogui.click()
 
@@ -91,26 +93,45 @@ def VTE_launch():
                               close_fds=True, startupinfo=info)
         time.sleep(5)
 
-        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
-        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-        pyautogui.moveTo(rtn)
+        # png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-025.png")
+        # rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(167, 92)
+        time.sleep(0.2)
         pyautogui.click()
 
         time.sleep(1)
 
-        png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
-        rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-        pyautogui.moveTo(rtn)
+        # png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
+        # rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
+        pyautogui.moveTo(931, 17) # 영상처리를 위한 캡처로 포지션 하드코딩함
+        time.sleep(0.2)
         pyautogui.click()
 
         os.chdir(od)
 
-        return True
+        time.sleep(1)
+
+        date = time.strftime('%m-%d-%Y %H%M%S', time.localtime(time.time()))
+        filename = 'D:/MnS/Pinokio.RL/results/dummy/' + date + '.png'
+        # 좌상
+        # 1039
+        # 198
+        # 좌하
+        # 1039
+        # 687
+        # 우하
+        # 1590
+        # 687
+        # 우상
+        # 1590
+        # 198
+        init_image = pyautogui.screenshot(filename, region=(1039, 198, 1590-1039, 687-198))
+        return init_image
     except pyautogui.FailSafeException:
-        return False
+        return None
 
 
-class AGVBased(MultiAgentEnv):
+class AGVBasedFeature(MultiAgentEnv):
     def __init__(self,
                  map_name="",
                  end_time=432,
@@ -129,7 +150,6 @@ class AGVBased(MultiAgentEnv):
                  replay_prefix="",
                  debug=False,
                  history=False,
-
                  ):
         # Map arguments
         self.map_name = map_name
@@ -204,6 +224,25 @@ class AGVBased(MultiAgentEnv):
         self.continuing_episode = continuing_episode
         self.spfa_dist_set = dict()
 
+        self.green_channel = np.zeros((100850, 100850), dtype=np.uint8)
+
+        links = self.LinkInfo.loc[self.LinkInfo.orientation == 'side', ['base_node', 'link_node']]
+        for idx, link in links.iterrows():
+            base_node = link.base_node
+            link_node = link.link_node
+            base_coord = self.MapCoordinate.loc[
+                base_node == self.MapCoordinate.node_id, ['x_coordinate', 'y_coordinate']]
+            link_coord = self.MapCoordinate.loc[
+                link_node == self.MapCoordinate.node_id, ['x_coordinate', 'y_coordinate']]
+            min_y = min([int(base_coord.y_coordinate), int(link_coord.y_coordinate)])
+            max_y = max([int(base_coord.y_coordinate), int(link_coord.y_coordinate)])
+            min_x = min([int(base_coord.x_coordinate), int(link_coord.x_coordinate)])
+            max_x = max([int(base_coord.x_coordinate), int(link_coord.x_coordinate)])
+            if (max_y - min_y) < (max_x - min_x):
+                self.green_channel[max_y, range(min_x, max_x)] = 127
+            else:
+                self.green_channel[range(min_y, max_y), max_x] = 127
+
     def step(self, actions):
         """ Returns reward, terminated, info """
         actions_int = [int(a) for a in actions]
@@ -277,13 +316,12 @@ class AGVBased(MultiAgentEnv):
             if time.time() - self.start_time > self.n_volumes:
                 terminated = True
             if time.time() - deadlock_time > 20:
-                import pyautogui
                 if self.history['Enable'] is True:
                     date = time.strftime('%m-%d-%Y %H%M%S', time.localtime(time.time()))
                     filename = self.history['Path'] + date + '.png'
-                    pyautogui.screenshot(filename, region=(0, 0, 1920, 1080))
+                    pyautogui.screenshot(filename, region=(1039, 198, 1590-1039, 687-198))
                 terminated = True
-                reward = -10
+                reward = 0
 
             if terminated:
                 view = self.DBMS.DML.select_all(tb='mcs_order', cond="completed_date != 'None'")
@@ -333,6 +371,33 @@ class AGVBased(MultiAgentEnv):
     def get_obs(self):
         """ Returns all agent observations in a list """
         agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
+
+        #224x224
+        init_image = pyautogui.screenshot('temp.png', region=(1039, 198, 1590 - 1039, 687 - 198))
+        view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
+        columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+        idle_order_set = pd.DataFrame(view, columns=columns)
+        from_nodes = idle_order_set.loc[:, ['from_node', 'uid']]
+        min_y = 18715
+        base_y = 49435 - 18715
+        min_x = 64500
+        base_x = 100850 - 64500
+        current_date = datetime.datetime.now()
+        red_channel = np.zeros((100850, 100850), dtype=np.uint8)
+        for idx, iter_node in from_nodes.iterrows():
+            coord = self.MapCoordinate.loc[int(iter_node.from_node) == self.MapCoordinate.node_id,
+                                            ['x_coordinate', 'y_coordinate']]
+            reg_date = idle_order_set.loc[iter_node.uid == idle_order_set.uid, 'registration_date']
+
+            date_diff = current_date - reg_date
+            sec = date_diff[idx].seconds
+            red_channel[int(coord.y_coordinate), int(coord.x_coordinate)] = int(math.exp(-0.1 * sec) * 255.0)
+
+        blue_channel = np.zeros((100850, 100850), dtype=np.uint8)
+        for idx, val in enumerate(self.Machines.agv_id.tolist()):
+            machine = self.MachineInfo[str(val)]
+            test = machine.loc[machine.explanation == 'Path', 'addressValue']
+            test = 1
         return agents_obs
 
     def get_obs_agent(self, agent_id):
@@ -473,7 +538,7 @@ class AGVBased(MultiAgentEnv):
         # observation, state 초기화
 
         launch_check = VTE_launch()
-        if launch_check is False:
+        if launch_check is None:
             VTE_kill_process()
             return None
         self.start_time = time.time()
@@ -668,6 +733,58 @@ class AGVBased(MultiAgentEnv):
             node = q.pop()
 
         return route[terminal], visit[terminal]
+
+
+class AGVBasedImage(AGVBasedFeature):
+    def reset(self):
+        """ Returns initial observations and states"""
+        if self.continuing_episode is True:
+            return
+        self.init_agents()
+        self._episode_steps = 0
+        self.last_action = np.zeros((self.n_agents, self.n_actions))
+        self.now_production = 0
+        self.score = 0
+
+        if self.history['Enable'] is True:
+            self.history['Data'] = {'Selected strategy': [],
+                                    'Order ID': [],
+                                    'Dispatched AGV': [],
+                                    'Registered time': [],
+                                    'Assigned time': [],
+                                    'Complete orders': [],
+                                    'AGV mileage': [],
+                                    'Reward': [],
+                                    }
+
+        if self.heuristic_ai:
+            self.heuristic_targets = [None] * self.n_agents
+
+        # observation, state 초기화
+
+        init_state = VTE_launch()
+        if init_state is None:
+            VTE_kill_process()
+            return None
+        self.start_time = time.time()
+        self.__AGV_update()
+        while True:
+            view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
+            columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
+            idle_order_set = pd.DataFrame(view, columns=columns)
+            orders = idle_order_set.head(3)
+
+            if orders.shape[0] < 1:
+                time.sleep(1)
+            else:
+                break
+        return init_state
+
+    def get_obs(self):
+        """ Returns all agent observations in a list """
+        agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
+        return agents_obs
+
 # class JobBased(gym.Env):
 #     def __init__(self, config: EnvContext):
 #

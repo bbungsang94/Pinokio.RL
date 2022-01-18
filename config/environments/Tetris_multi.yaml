@@ -1,0 +1,45 @@
+env: Tetris_multi
+
+env_args:
+  Agent: 3
+  Count: 0
+  MinoName:
+    - 'L'
+    - 'J'
+    - 'I'
+    - 'O'
+    - 'Z'
+    - 'S'
+    - 'T'
+  MinoData:
+    L: [0, 0, 1, 1, 1, 1, 0, 0, 0]
+    J: [1, 0, 0, 1, 1, 1, 0, 0, 0]
+    I: [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0]
+    O: [1, 1, 1, 1]
+    Z: [0, 0, 0, 1, 1, 0, 0, 1, 1]
+    S: [0, 0, 0, 0, 1, 1, 1, 1, 0]
+    T: [0, 0, 0, 0, 1, 0, 1, 1, 1]
+  MinoColor:
+    L: [ 255, 0, 0 ]
+    J: [ 255, 165, 0 ]
+    I: [ 0, 0, 255 ]
+    O: [ 0, 255, 255 ]
+    Z: [ 0, 255, 0 ]
+    S: [255, 0, 255 ]
+    T: [ 255, 255, 0 ]
+  Ghost: False
+  Hold: False
+  InitGravitiy: 1
+  MaxGravity: 20
+  TimeOut: 300
+  Preview: 1
+  History: True
+
+test_greedy: True
+test_nepisode: 32
+test_interval: 10000
+log_interval: 10000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+off_pg: False

@@ -1,0 +1,29 @@
+env: AGV_Dispatching_img
+
+env_args:
+  map_name: ''
+  end_time: 435
+  continuing_episode: False
+  order_view: 10
+  target_production: 350
+  reward_scale: True
+  state_last_action: False
+  state_timestep_number: False
+  state_normalize: 8
+  obs_instead_of_state: True
+  seed: None
+  heuristic_ai: False
+  heuristic_rest: False
+  replay_dir: ''
+  replay_prefix: ''
+  debug: False
+  history: True
+
+test_greedy: True
+test_nepisode: 32
+test_interval: 10000
+log_interval: 10000
+runner_log_interval: 10000
+learner_log_interval: 10000
+t_max: 2050000
+off_pg: False
