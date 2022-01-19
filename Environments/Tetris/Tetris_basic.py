@@ -365,7 +365,10 @@ class TetrisMulti(MultiAgentEnv):
             input_data = [data]
             rotated_data = data
             for rotate in range(1, 4):
-                rotated_data = rotate_perp(rotated_data)
+                if mino == 'O':
+                    rotated_data = rotated_data
+                else:
+                    rotated_data = rotate_perp(rotated_data)
                 input_data.append(rotated_data)
             self.MinoData[mino] = input_data
 
@@ -380,7 +383,7 @@ class TetrisMulti(MultiAgentEnv):
         self.Field = []
         self.Score = []
         self.Fire = []
-        self.Debug = 0
+        self.ActionCount = 0
 
         for agent in range(self.n_agents):
             self.Turn.append(randint(0, 3))
@@ -565,11 +568,11 @@ class TetrisMulti(MultiAgentEnv):
     # endregion
     # region play module
     def drop_block(self, xpos, agent_idx):
-        ypos = 0
-        for idx in range(0, 20):
-            rtn = self.is_overlapped(xpos, idx, self.Turn[agent_idx], agent_idx)
+        ypos = self.Ypos[agent_idx] + 1
+        for idx in range(self.Ypos[agent_idx] + 1, 20):
+            rtn = self.is_overlapped(xpos, idx + 1, self.Turn[agent_idx], agent_idx)
             if rtn:
-                ypos = idx - 1
+                ypos = idx
                 break
         return ypos
 
@@ -656,27 +659,26 @@ class TetrisMulti(MultiAgentEnv):
                 next_x, next_y, next_t = \
                     self.Xpos[index], self.Ypos[index], self.Turn[index]
                 if action == TetrisKeys.ROTATE:
-                    reward += 2
                     next_t = (next_t + 1) % 4
-                elif action == TetrisKeys.RIGHT:
-                    reward += 1
-                    next_x += 1
-                elif action == TetrisKeys.LEFT:
-                    reward += 1
-                    next_x -= 1
-                elif action == TetrisKeys.SOFTDROP:
-                    reward += 1
                     next_y += 1
+                elif action == TetrisKeys.RIGHT:
+                    next_x += 1
+                    next_y += 1
+                elif action == TetrisKeys.LEFT:
+                    next_x -= 1
+                    next_y += 1
+                elif action == TetrisKeys.SOFTDROP:
+                    next_y += 2
                 elif action == TetrisKeys.HARDDROP:
                     reward += 5
-                    # next_y += 1
                     next_y = self.drop_block(next_x, index)
+                else:
+                    next_y += 1
                 if not self.is_overlapped(next_x, next_y, next_t, index):
                     self.Xpos[index] = next_x
-                    self.Ypos[index] = next_y
                     self.Turn[index] = next_t
                     self.Data[index] = self.Type[index][self.Turn[index]]
-
+                self.Ypos[index] = next_y
                 erased = self.update(count, index)
 
                 if erased > 0:
@@ -692,7 +694,9 @@ class TetrisMulti(MultiAgentEnv):
         self.draw_next_block()
         # 점수 나타내기
         self.draw_score()
-        if whole_game_over >= 3:
+
+        self.ActionCount += 1
+        if whole_game_over >= 3 or self.ActionCount >= self.episode_limit:
             terminated = True
         else:
             terminated = False
@@ -718,8 +722,6 @@ class TetrisMulti(MultiAgentEnv):
         rowlen = len(obs) - 1
         collen = len(obs[0]) - 1
         block = copy.deepcopy(self.Data[agent_id])
-        print(self.MinoName[self.Current[agent_id]])
-        print(self.Size[agent_id])
         for row in range(self.Size[agent_id]):
             if 0 > self.Ypos[agent_id] + row > rowlen:
                 continue
@@ -794,6 +796,7 @@ class TetrisMulti(MultiAgentEnv):
             self.Score[agent] = 0
             self.Fire[agent] = INTERVAL
 
+        self.ActionCount = 0
         self.set_game_field()
         self.Screen.fill((0, 0, 0))
 
