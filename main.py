@@ -18,12 +18,12 @@ if __name__ == '__main__':
 
     logger = get_logger()
 
+    algorithm = 'RNN_AGENT/coma'
+    env_name = 'AGV_Dispatching'
+    map_name = 'acs_dda_simulator_210324'
     # algorithm = 'RNN_AGENT/qmix'
-    # env_name = 'AGV_Dispatching'
-    # map_name = 'acs_dda_simulator_210324'
-    algorithm = 'RNN_AGENT/qmix'
-    env_name = 'Tetris_multi'
-    map_name = ''
+    # env_name = 'Tetris_multi'
+    # map_name = ''
     config = config_mapper.config_copy(
         config_mapper.get_config(algorithm=algorithm, env_name=env_name, map_name=map_name))
 
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     np.random.seed(random_Seed)
     th.manual_seed(random_Seed)
     config['env_args']['seed'] = random_Seed
-    # config['env_args']['map_name'] = map_name
+    config['env_args']['map_name'] = map_name
 
     is_offline_run = config['off_pg']
 

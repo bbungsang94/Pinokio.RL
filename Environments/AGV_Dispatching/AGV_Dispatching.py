@@ -1,19 +1,21 @@
+import csv
+import datetime
 import enum
 import math
 import os
 import random
-import datetime
+import subprocess
 import time
-import csv
-import psutil
+
 import numpy as np
 import pandas as pd
-import subprocess
+import psutil
 import pyautogui
 from PIL import Image
 from absl import logging
-from Environments.multiagentenv import MultiAgentEnv
+
 from Environments.AGV_Dispatching.Maps import get_map_params
+from Environments.multiagentenv import MultiAgentEnv
 from utils.DBManager import MariaManager
 
 
@@ -103,7 +105,7 @@ def VTE_launch():
 
         # png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-028.png")
         # rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
-        pyautogui.moveTo(931, 17) # 영상처리를 위한 캡처로 포지션 하드코딩함
+        pyautogui.moveTo(931, 17)  # 영상처리를 위한 캡처로 포지션 하드코딩함
         time.sleep(0.2)
         pyautogui.click()
 
@@ -125,7 +127,7 @@ def VTE_launch():
         # 우상
         # 1590
         # 198
-        init_image = pyautogui.screenshot(filename, region=(1039, 198, 1590-1039, 687-198))
+        init_image = pyautogui.screenshot(filename, region=(1039, 198, 1590 - 1039, 687 - 198))
         return init_image
     except pyautogui.FailSafeException:
         return None
@@ -319,7 +321,7 @@ class AGVBasedFeature(MultiAgentEnv):
                 if self.history['Enable'] is True:
                     date = time.strftime('%m-%d-%Y %H%M%S', time.localtime(time.time()))
                     filename = self.history['Path'] + date + '.png'
-                    pyautogui.screenshot(filename, region=(1039, 198, 1590-1039, 687-198))
+                    pyautogui.screenshot(filename, region=(1039, 198, 1590 - 1039, 687 - 198))
                 terminated = True
                 reward = 0
 
@@ -372,7 +374,7 @@ class AGVBasedFeature(MultiAgentEnv):
         """ Returns all agent observations in a list """
         agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
 
-        #224x224
+        # 224x224
         init_image = pyautogui.screenshot('temp.png', region=(1039, 198, 1590 - 1039, 687 - 198))
         view = self.DBMS.DML.select_all(tb='mcs_order', cond='selected_agv_id = 0')
         columns = self.DBMS.DML.get_columns(tb='mcs_order', on_tuple=False)
@@ -386,7 +388,7 @@ class AGVBasedFeature(MultiAgentEnv):
         red_channel = np.zeros((100850, 100850), dtype=np.uint8)
         for idx, iter_node in from_nodes.iterrows():
             coord = self.MapCoordinate.loc[int(iter_node.from_node) == self.MapCoordinate.node_id,
-                                            ['x_coordinate', 'y_coordinate']]
+                                           ['x_coordinate', 'y_coordinate']]
             reg_date = idle_order_set.loc[iter_node.uid == idle_order_set.uid, 'registration_date']
 
             date_diff = current_date - reg_date
@@ -396,8 +398,17 @@ class AGVBasedFeature(MultiAgentEnv):
         blue_channel = np.zeros((100850, 100850), dtype=np.uint8)
         for idx, val in enumerate(self.Machines.agv_id.tolist()):
             machine = self.MachineInfo[str(val)]
-            test = machine.loc[machine.explanation == 'Path', 'addressValue']
-            test = 1
+            names = ['MOVE', 'MOVE_NEXT']
+            for n in range(len(names)):
+                node = machine.loc[machine.addressName == names[n], 'addressValue']
+                converted = node.values[0]
+                if converted != '':
+                    coord = self.MapCoordinate.loc[int(converted) == self.MapCoordinate.node_id,
+                                                   ['x_coordinate', 'y_coordinate']]
+                    blue_channel[int(coord.y_coordinate), int(coord.x_coordinate)] = 128 + (127 * n)
+        img_b, img_g, img_r = init_image
+
+        Merged = Image.fromarray(blue_channel)
         return agents_obs
 
     def get_obs_agent(self, agent_id):
