@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
     logger = get_logger()
 
-    algorithm = 'RNN_AGENT/coma'
+    algorithm = 'RNN_AGENT/qmix'
     env_name = 'AGV_Dispatching'
     map_name = 'acs_dda_simulator_210324'
     # algorithm = 'RNN_AGENT/qmix'

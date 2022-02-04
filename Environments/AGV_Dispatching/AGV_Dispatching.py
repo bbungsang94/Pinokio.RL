@@ -12,6 +12,7 @@ import pandas as pd
 import psutil
 import pyautogui
 from PIL import Image
+import cv2
 from absl import logging
 
 from Environments.AGV_Dispatching.Maps import get_map_params
@@ -76,7 +77,7 @@ def VTE_launch():
         subprocess.Popen('Pinokio.exe',
                          shell=True, stdin=None, stdout=None, stderr=None,
                          close_fds=True)
-        time.sleep(3)
+        time.sleep(5)
         # png_file = Image.open(r"C:\Users\Simon Anderson\Desktop\스크린샷\K-026.png")
         # rtn = pyautogui.locateCenterOnScreen(png_file, confidence=0.8)
         pyautogui.moveTo(478, 144)
@@ -240,10 +241,19 @@ class AGVBasedFeature(MultiAgentEnv):
             max_y = max([int(base_coord.y_coordinate), int(link_coord.y_coordinate)])
             min_x = min([int(base_coord.x_coordinate), int(link_coord.x_coordinate)])
             max_x = max([int(base_coord.x_coordinate), int(link_coord.x_coordinate)])
-            if (max_y - min_y) < (max_x - min_x):
-                self.green_channel[max_y, range(min_x, max_x)] = 127
-            else:
-                self.green_channel[range(min_y, max_y), max_x] = 127
+
+            for offset in range(-100, 100):
+                if max_y + offset <= 0 or max_y + offset > 100849:
+                    continue
+                if max_x + offset <= 0 or max_x + offset > 100849:
+                    continue
+
+                pos_y = max_y + offset
+                pos_x = max_x + offset
+                if (max_y - min_y) < (max_x - min_x):
+                    self.green_channel[pos_y, range(min_x, max_x)] = 127
+                else:
+                    self.green_channel[range(min_y, max_y), pos_x] = 127
 
     def step(self, actions):
         """ Returns reward, terminated, info """
@@ -372,6 +382,7 @@ class AGVBasedFeature(MultiAgentEnv):
 
     def get_obs(self):
         """ Returns all agent observations in a list """
+        time.sleep(0.3)
         agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
 
         # 224x224
@@ -393,7 +404,17 @@ class AGVBasedFeature(MultiAgentEnv):
 
             date_diff = current_date - reg_date
             sec = date_diff[idx].seconds
-            red_channel[int(coord.y_coordinate), int(coord.x_coordinate)] = int(math.exp(-0.1 * sec) * 255.0)
+
+            for offset_x in range(-50, 50):
+                for offset_y in range(-50, 50):
+                    pos_y = int(coord.y_coordinate) + offset_y
+                    pos_x = int(coord.x_coordinate) + offset_x
+                    if pos_y < 0 or pos_y > 100849:
+                        continue
+                    if pos_x < 0 or pos_x > 100849:
+                        continue
+
+                    red_channel[pos_y, pos_x] = int(math.exp(-0.1 * sec) * 255.0)
 
         blue_channel = np.zeros((100850, 100850), dtype=np.uint8)
         for idx, val in enumerate(self.Machines.agv_id.tolist()):
@@ -405,10 +426,32 @@ class AGVBasedFeature(MultiAgentEnv):
                 if converted != '':
                     coord = self.MapCoordinate.loc[int(converted) == self.MapCoordinate.node_id,
                                                    ['x_coordinate', 'y_coordinate']]
-                    blue_channel[int(coord.y_coordinate), int(coord.x_coordinate)] = 128 + (127 * n)
-        img_b, img_g, img_r = init_image
+                    for offset_x in range(-50, 50):
+                        for offset_y in range(-50, 50):
+                            pos_y = int(coord.y_coordinate) + offset_y
+                            pos_x = int(coord.x_coordinate) + offset_x
+                            if pos_y < 0 or pos_y > 100849:
+                                continue
+                            if pos_x < 0 or pos_x > 100849:
+                                continue
 
-        Merged = Image.fromarray(blue_channel)
+                            blue_channel[pos_y, pos_x] = 128 + (127 * n)
+
+        numpy_image = np.array(init_image)
+
+        # convert to a openCV2 image and convert from RGB to BGR format
+        opencv_image = cv2.cvtColor(numpy_image, cv2.COLOR_RGB2BGR)
+
+        big_img = cv2.merge((red_channel, self.green_channel, blue_channel))
+        roi = big_img[int(100850/5):int(100850*2/3), int(100850*2/3):100849]
+        cv2.imwrite('D:/MnS/Pinokio.RL/results/preset.jpg', roi)
+        proc_img = cv2.resize(roi, dsize=(551, 489), interpolation=cv2.INTER_LINEAR)
+
+        cv2.imwrite('D:/MnS/Pinokio.RL/results/init.jpg', opencv_image)
+        cv2.imwrite('D:/MnS/Pinokio.RL/results/data.jpg', proc_img)
+        adding_img = cv2.add(opencv_image, proc_img)
+        cv2.imwrite('D:/MnS/Pinokio.RL/results/state.jpg', adding_img)
+
         return agents_obs
 
     def get_obs_agent(self, agent_id):
