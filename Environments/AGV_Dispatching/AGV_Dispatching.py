@@ -443,7 +443,7 @@ class AGVBasedFeature(MultiAgentEnv):
         opencv_image = cv2.cvtColor(numpy_image, cv2.COLOR_RGB2BGR)
 
         big_img = cv2.merge((red_channel, self.green_channel, blue_channel))
-        roi = big_img[int(100850/5):int(100850*2/3), int(100850*2/3):100849]
+        roi = big_img[int(100850 / 5):int(100850 * 2 / 3), int(100850 * 2 / 3):100849]
         cv2.imwrite('D:/MnS/Pinokio.RL/results/preset.jpg', roi)
         proc_img = cv2.resize(roi, dsize=(551, 489), interpolation=cv2.INTER_LINEAR)
 

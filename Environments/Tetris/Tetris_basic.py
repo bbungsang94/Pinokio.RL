@@ -329,7 +329,7 @@ class TetrisSingle(MultiAgentEnv):
         pygame.display.update()
         return game_over, count
 
-    # end region
+    # endregion
     def step(self, actions):
         count = 0
         while True:
