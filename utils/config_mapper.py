@@ -21,11 +21,11 @@ def recursive_dict_update(d, u):
     return d
 
 
-def get_config(algorithm, env_name, map_name):
+def get_config(algorithm, env_name, mode='default'):
     config_dir = '{0}/{1}'
     config_dir2 = '{0}/{1}/{2}'
-
-    with open(config_dir.format('config', "{}.yaml".format('default')), "r") as f:
+    default_name = mode
+    with open(config_dir.format('config', "{}.yaml".format(default_name)), "r") as f:
         try:
             default_config = yaml.load(f, Loader=yaml.FullLoader)
         except yaml.YAMLError as exc:
